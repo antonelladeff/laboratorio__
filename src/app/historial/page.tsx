@@ -54,7 +54,7 @@ export default function LabHistoryPage() {
           <div className="border-b border-gray-200 p-6">
             <h2 className="flex items-center gap-2 text-xl font-semibold text-gray-900">
               <Calendar className="h-5 w-5" />
-               Búsqueda
+              Búsqueda
             </h2>
             <p className="mt-1 text-sm text-gray-600">Selecciona un rango de fechas para ver los estudios</p>
           </div>
@@ -69,7 +69,7 @@ export default function LabHistoryPage() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="space-y-2">
@@ -81,7 +81,7 @@ export default function LabHistoryPage() {
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div className="flex items-end gap-2">

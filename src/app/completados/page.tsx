@@ -62,7 +62,7 @@ export default function CompletadosPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Estudios completados</h1>
+      <h1 className="text-2xl font-bold text-black mb-4">Estudios completados</h1>
       {completados.length === 0 ? (
         <p className="text-gray-600">No hay estudios completados todavía.</p>
       ) : (

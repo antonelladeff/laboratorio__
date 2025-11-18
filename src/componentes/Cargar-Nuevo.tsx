@@ -344,7 +344,7 @@ export function CargarNuevo({ onCargarEstudio }: CargarNuevoProps) {
               Cancelar
             </button>
             <button
-              onClick={() => handleSubmit(true)}
+              onClick={() => handleSubmit(false)}
               className="flex-1 bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold shadow-sm hover:bg-blue-700 transition-colors"
             >
               Cargar Estudio
