@@ -400,15 +400,15 @@ export default function Dashboard({ completados = 0, totales = 0, ultimoCompleta
                         <button className={btnNoFile}>Sin archivo</button>
                       )}
 
-                      <button className={iconBtn}>
+                      <button className={`${iconBtn} hover:bg-sky-500`} title="Compartir estudio">
                         <Share2 size={16} />
                       </button>
 
-                      <button className={iconBtn}>
+                      <button className={`${iconBtn} hover:bg-green-500`} title="Descargar estudio">
                         <Download size={16} />
                       </button>
 
-                      <button onClick={() => handleDelete(e.id)} title="Eliminar estudio" className={iconBtn}>
+                      <button onClick={() => handleDelete(e.id)} title="Eliminar estudio" className={`${iconBtn} hover:bg-red-500`}>
                         <Trash2 size={16} />
                       </button>
                     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { getPdf } from "../../../utils/estudiosStore"
-import { Share2, Download } from "lucide-react"
+import { Share2, Download, Trash2 } from "lucide-react"
 import { cardClasses, leftColClasses, nameClasses, metaClasses, rightActionsClasses, btnPdf, btnNoFile, iconBtn, badgeCompletado } from "../../../utils/uiClasses"
 
 type EstudioMeta = {
@@ -61,6 +61,10 @@ export default function CompletadosPage() {
 
     if (loading) return <div>Cargando completados...</div>
 
+    function handleDelete(id: string | undefined): void {
+        throw new Error("Function not implemented.")
+    }
+
     return (
         <div className="p-6">
             <h1 className="text-2xl font-bold text-black mb-4">Estudios completados</h1>
@@ -94,12 +98,16 @@ export default function CompletadosPage() {
                                     <button className={btnNoFile}>Sin archivo</button>
                                 )}
 
-                                <button className={iconBtn}>
+                                <button className={`${iconBtn} hover:bg-sky-500`} title="Compartir estudio">
                                     <Share2 size={16} />
                                 </button>
 
-                                <button className={iconBtn}>
+                                <button className={`${iconBtn} hover:bg-green-500`} title="Descargar estudio">
                                     <Download size={16} />
+                                </button>
+
+                                <button onClick={() => handleDelete(e.id)} title="Eliminar estudio" className={`${iconBtn} hover:bg-red-500`}>
+                                    <Trash2 size={16} />
                                 </button>
                             </div>
 
