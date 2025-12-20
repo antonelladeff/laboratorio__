@@ -142,10 +142,10 @@ export default function ParcialesPage() {
 
                                 <button onClick={() => handleDelete(e.id)} title="Eliminar estudio" className={`${iconBtn} hover:bg-red-500`}>
                                     <Trash2 size={16} />
-                                    </button>
+                                </button>
 
-                                    {/* Pendiente: permite continuar la carga de un estudio existente (subir PDF y luego marcar parcial/completado) */}
-                                    <button onClick={() => router.push(`/cargar-nuevo?id=${e.id}`)} className="px-4 py-2 bg-yellow-400 text-black rounded whitespace-nowrap">Pendiente</button>
+                                {/* Pendiente: permite continuar la carga de un estudio existente (subir PDF y luego marcar parcial/completado) */}
+                                <button onClick={() => router.push(`/cargar-nuevo?id=${e.id}`)} className="px-4 py-2 bg-yellow-400 text-black rounded whitespace-nowrap">Pendiente</button>
 
                             </div>
 
