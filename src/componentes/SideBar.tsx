@@ -17,13 +17,12 @@ export function Sidebar({ className = "" }: SidebarProps) {
     { id: "dashboard", label: "Dashboard", icon: Home, href: "/dashboard" },
     {
       id: "estudios",
-      label: "Estudios",
+      label: "Gestionar estudios",
       icon: BarChart3,
       hasSubmenu: true,
       submenu: [
-        { id: "cargar-nuevo", label: "Cargar nuevo", href: "/cargar-nuevo" },
+        { id: "completados", label: "Ultimos estudios", href: "/estudios/completados" },
         { id: "pendientes", label: "Pendientes", href: "/estudios/pendientes" },
-        { id: "completados", label: "Completados", href: "/estudios/completados" },
       ],
     },
     { id: "historial", label: "Historial", icon: User, href: "/historial" },
@@ -44,8 +43,8 @@ export function Sidebar({ className = "" }: SidebarProps) {
             AS
           </div>
           <div className="flex flex-col">
-            <span className="text-xs text-gray-500 uppercase tracking-wide">BOQUIMICO M.P1010</span>
-            <span className="text-sm font-medium text-gray-900">Andrew Smith</span>
+            <span className="text-xs text-gray-500 uppercase tracking-wide">PACIENTE</span>
+            <span className="text-sm font-medium text-gray-900">Matias Der</span>
           </div>
         </div>
       </div>
