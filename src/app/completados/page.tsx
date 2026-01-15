@@ -1,116 +1,136 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { getPdf } from "../../utils/estudiosStore"
-import { Share2, Download } from "lucide-react"
+import { FileText, Share2, Download } from "lucide-react"
 
-type EstudioMeta = {
-  id?: string
-  nombreApellido?: string
-  dni?: string
-  fecha?: string
-  obraSocial?: string
-  medico?: string
-  pdfUrl?: string
-  status?: string
+interface Study {
+  id: string
+  patientName: string
+  dni: string
+  date: string
+  status: "completado" | "en-proceso" | "pendel"
+  obraSocial: string
+  medico: string
 }
 
-export default function CompletadosPage() {
-  const [completados, setCompletados] = useState<EstudioMeta[]>([])
-  const [loading, setLoading] = useState(true)
+const studies: Study[] = [
+  {
+    id: "1",
+    patientName: "FRANCO GRAFF",
+    dni: "38374909",
+    date: "03/09/2025",
+    status: "completado",
+    obraSocial: "Osde",
+    medico: "Dra Pessi",
+  },
+  {
+    id: "2",
+    patientName: "FRANCO GRAFF",
+    dni: "38374909",
+    date: "02/09/2025",
+    status: "en-proceso",
+    obraSocial: "Osde",
+    medico: "Dra Pessi",
+  },
+  {
+    id: "3",
+    patientName: "FRANCO GRAFF",
+    dni: "38374909",
+    date: "01/09/2025",
+    status: "pendel",
+    obraSocial: "Osde",
+    medico: "Dra Pessi",
+  },
+]
 
-  useEffect(() => {
-    let mounted = true
-    async function load() {
-      try {
-        const raw = localStorage.getItem('estudios_metadata')
-        if (!raw) {
-          if (mounted) setCompletados([])
-          return
-        }
-        const metas = JSON.parse(raw) as EstudioMeta[]
-        const onlyCompleted = metas.filter(m => m.status === 'completado')
-        const dedupMap: Record<string, EstudioMeta> = {}
-        onlyCompleted.forEach(m => { if (m.id) dedupMap[m.id] = m })
-        const deduped = Object.values(dedupMap)
+function getStatusConfig(status: Study["status"]) {
+  switch (status) {
+    case "completado":
+      return { label: "Completado", className: "bg-green-600 text-white" }
+    case "en-proceso":
+      return { label: "En proceso", className: "bg-orange-500 text-white" }
+    case "pendel":
+      return { label: "Pendel", className: "bg-red-500 text-white" }
+  }
+}
 
-        const resolved = await Promise.all(deduped.map(async (m) => {
-          if (m.id && !m.pdfUrl) {
-            try {
-              const blob = await getPdf(m.id)
-              if (blob) {
-                const url = URL.createObjectURL(blob)
-                return { ...m, pdfUrl: url }
-              }
-            } catch {}
-          }
-          return m
-        }))
-
-        if (mounted) setCompletados(resolved)
-      } catch (e) {
-        console.error('Error cargando completados', e)
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    }
-    load()
-    return () => { mounted = false }
-  }, [])
-
-  if (loading) return <div>Cargando completados...</div>
-
+export function StudiesGrid() {
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-black mb-4">Estudios completados</h1>
-      {completados.length === 0 ? (
-        <p className="text-gray-600">No hay estudios completados todavía.</p>
-      ) : (
-        <div className="space-y-4">
-          {completados.map((e) => (
-            <div key={e.id} className="p-4 border rounded-lg bg-white shadow-sm flex items-center justify-between">
-              
-              <div className="flex flex-col gap-1">
-                <div className="font-bold text-gray-900">{e.nombreApellido}</div>
-                <div className="flex flex-wrap text-sm text-gray-600 gap-3">
-                  <span>DNI {e.dni}</span>
-                  <span>Fecha {e.fecha}</span>
-                  <span>Obra social {e.obraSocial}</span>
-                  <span>Médico: {e.medico}</span>
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-semibold text-gray-900">Mis Estudios</h2>
+        <div className="flex gap-2">
+          <button className="px-4 py-2 text-sm border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+            Filtrar
+          </button>
+          <button className="px-4 py-2 text-sm border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+            Ordenar
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {studies.map((study) => {
+          const statusConfig = getStatusConfig(study.status)
+          const isProcessing = study.status === "en-proceso"
+
+          return (
+            <div key={study.id} className="border border-gray-200 rounded-lg bg-white shadow-sm">
+              <div className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-start gap-6 flex-1">
+                    <div className="min-w-[180px]">
+                      <p className="text-sm font-semibold text-gray-900 mb-1">{study.patientName}</p>
+                      <p className="text-sm text-gray-600">DNI: {study.dni}</p>
+                    </div>
+
+                    <div className="min-w-[100px]">
+                      <span
+                        className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${statusConfig.className}`}
+                      >
+                        {statusConfig.label}
+                      </span>
+                    </div>
+
+                    <div className="min-w-[100px]">
+                      <p className="text-xs text-gray-500 mb-1">Fecha</p>
+                      <p className="text-sm text-gray-900">{study.date}</p>
+                    </div>
+
+                    <div className="min-w-[120px]">
+                      <p className="text-xs text-gray-500 mb-1">Obra social</p>
+                      <p className="text-sm text-gray-900">{study.obraSocial}</p>
+                    </div>
+
+                    <div className="min-w-[120px]">
+                      <p className="text-xs text-gray-500 mb-1">Médico</p>
+                      <p className="text-sm text-gray-900">{study.medico}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isProcessing ? (
+                      <span className="text-sm text-gray-500">Procesando...</span>
+                    ) : (
+                      <>
+                        <button className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md flex items-center gap-2 transition-colors">
+                          <FileText className="h-4 w-4" />
+                          ver PDF
+                        </button>
+                        <button className="h-9 w-9 flex items-center justify-center hover:bg-gray-100 rounded-md transition-colors">
+                          <Share2 className="h-4 w-4 text-gray-600" />
+                        </button>
+                        <button className="h-9 w-9 flex items-center justify-center hover:bg-gray-100 rounded-md transition-colors">
+                          <Download className="h-4 w-4 text-gray-600" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                {e.status === "completado" && (
-                  <span className="text-xs bg-green-100 text-green-700 font-semibold px-2 py-1 rounded-full">completado</span>
-                )}
-
-                {e.pdfUrl ? (
-                  <a 
-                    href={e.pdfUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded font-semibold"
-                  >
-                    ver PDF
-                  </a>
-                ) : (
-                  <button className="px-3 py-2 rounded border text-sm text-gray-500">Sin archivo</button>
-                )}
-
-                <button className="p-2 rounded border text-gray-500 hover:bg-gray-100">
-                  <Share2 size={16} />
-                </button>
-
-                <button className="p-2 rounded border text-gray-500 hover:bg-gray-100">
-                  <Download size={16} />
-                </button>
-              </div>
-
             </div>
-          ))}
-        </div>
-      )}
+          )
+        })}
+      </div>
     </div>
   )
 }

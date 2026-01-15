@@ -1,8 +1,8 @@
 "use client"
 
-// Wrapper para mantener la ruta /estudios/completados compatible con el menú
-import CompletadosPage from "../../completados/page"
+import { StudiesGrid } from "@/app/completados/page"
+
 
 export default function WrapperCompletados() {
-    return <CompletadosPage />
+    return <StudiesGrid />
 }
