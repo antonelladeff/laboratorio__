@@ -20,8 +20,13 @@ type EstudioMeta = {
 export default function ParcialesPage() {
     const [parciales, setParciales] = useState<EstudioMeta[]>([])
     const [loading, setLoading] = useState(true)
+    const [mounted, setMounted] = useState(false)
 
     const router = useRouter()
+
+    useEffect(() => {
+        setMounted(true)
+    }, [])
 
     useEffect(() => {
         let mounted = true
@@ -72,6 +77,8 @@ export default function ParcialesPage() {
             } catch { /* ignore */ }
         }
     }, [])
+
+    if (!mounted) return null
 
     if (loading) return <div>Cargando parciales...</div>
 

@@ -15,6 +15,7 @@ export function Sidebar({ className = "" }: SidebarProps) {
   const router = useRouter()
   const [isEstudiosOpen, setIsEstudiosOpen] = useState(pathname?.startsWith("/estudios"))
   const [userName, setUserName] = useState<string>("Usuario")
+  const [userDni, setUserDni] = useState<string>("")
   const [userRole, setUserRole] = useState<string>("")
   const [userInitials, setUserInitials] = useState<string>("U")
 
@@ -26,11 +27,26 @@ export function Sidebar({ className = "" }: SidebarProps) {
 
       if (userDataStr) {
         const userData = JSON.parse(userDataStr)
-        const name = userData.nombre || userData.nombreApellido || `Usuario ${userData.dni || ''}`
-        setUserName(name)
+
+        // Obtener nombre completo desde profile
+        let fullName = "Usuario";
+        if (userData.profile?.firstName && userData.profile?.lastName) {
+          fullName = `${userData.profile.firstName} ${userData.profile.lastName}`;
+        } else if (userData.profile?.firstName) {
+          fullName = userData.profile.firstName;
+        } else if (userData.profile?.lastName) {
+          fullName = userData.profile.lastName;
+        }
+
+        setUserName(fullName)
+
+        // Obtener DNI
+        if (userData.dni) {
+          setUserDni(userData.dni)
+        }
 
         // Calcular iniciales
-        const initials = name
+        const initials = fullName
           .split(' ')
           .map((n: string) => n[0])
           .join('')
@@ -40,7 +56,7 @@ export function Sidebar({ className = "" }: SidebarProps) {
 
         // Establecer rol
         if (userType === 'professional') {
-          setUserRole(userData.role || userData.matricula || 'PROFESIONAL')
+          setUserRole(userData.role || 'PROFESIONAL')
         } else if (userType === 'patient') {
           setUserRole('PACIENTE')
         }
@@ -54,7 +70,8 @@ export function Sidebar({ className = "" }: SidebarProps) {
     localStorage.removeItem('authToken')
     localStorage.removeItem('userType')
     localStorage.removeItem('userData')
-    router.push('/login-profesional')
+    sessionStorage.setItem('justLoggedOut', 'true')
+    router.push('/')
   }
 
   const menuItems = [
@@ -65,6 +82,7 @@ export function Sidebar({ className = "" }: SidebarProps) {
       icon: BarChart3,
       hasSubmenu: true,
       submenu: [
+        { id: "cargar-nuevo", label: "Cargar Estudio", href: "/cargar-nuevo" },
         { id: "proceso", label: "En Proceso", href: "/estudios/proceso" },
         { id: "parciales", label: "Parcial", href: "/estudios/parciales" },
         { id: "completados", label: "Completados", href: "/estudios/completados" },
@@ -97,9 +115,10 @@ export function Sidebar({ className = "" }: SidebarProps) {
           <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-sm">
             {userInitials}
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col flex-1 min-w-0">
             {userRole && <span className="text-xs text-gray-500 uppercase tracking-wide">{userRole}</span>}
-            <span className="text-sm font-medium text-gray-900">{userName}</span>
+            <span className="text-sm font-medium text-gray-900 truncate">{userName}</span>
+            {userDni && <span className="text-xs text-gray-600">DNI: {userDni}</span>}
           </div>
         </div>
       </div>
@@ -184,10 +203,3 @@ export function Sidebar({ className = "" }: SidebarProps) {
     </div>
   )
 }
-
-
-
-
-
-
-

@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from 'next/navigation'
+import authFetch from '@/utils/authFetch'
 import { CargarNuevo } from "@/componentes/Cargar-Nuevo"
 import { RevisarEstudio } from "@/componentes/Revisar-Estudio"
 import Toast from '@/componentes/Toast'
@@ -13,102 +14,112 @@ export default function Page() {
     const [estudioData, setEstudioData] = useState<EstudioData | null>(null)
     const [toastMessage, setToastMessage] = useState<string>('')
     const [showToast, setShowToast] = useState<boolean>(false)
+    const [loading, setLoading] = useState(false)
 
     const searchParams = useSearchParams()
+    const router = useRouter()
 
     useEffect(() => {
-        try {
-            const id = searchParams?.get('id')
-            if (id) {
+        const loadStudy = async () => {
+            try {
+                const id = searchParams?.get('id')
+                if (!id) return
+
+                setLoading(true)
+
+                // Primero intenta cargar desde localStorage (flujo local)
                 const raw = localStorage.getItem('estudios_metadata')
                 const metas = raw ? JSON.parse(raw) as Array<Record<string, any>> : []
-                const found = metas.find(m => m.id === id)
-                if (found) {
-                    setEstudioData(found as EstudioData)
+                const localFound = metas.find(m => m.id === id)
+
+                if (localFound) {
+                    setEstudioData(localFound as EstudioData)
+                    setCurrentView('cargar')
+                    return
+                }
+
+                // Si no está en localStorage, intenta cargar desde la API (estudios de BD)
+                const response = await authFetch(`http://localhost:3000/api/studies/${id}`)
+                if (response.ok) {
+                    const result = await response.json()
+                    const study = result.data || result
+
+                    // Mapear los datos del backend al formato EstudioData
+                    const estudio: EstudioData = {
+                        nombreApellido: study.patient?.profile
+                            ? `${study.patient.profile.firstName || ''} ${study.patient.profile.lastName || ''}`.trim()
+                            : 'Sin nombre',
+                        dni: study.patient?.documentNumber || study.patient?.dni || '',
+                        fecha: study.studyDate ? new Date(study.studyDate).toISOString().split('T')[0] : '',
+                        obraSocial: study.socialInsurance || '',
+                        medico: study.biochemist?.profile
+                            ? `${study.biochemist.profile.firstName || ''} ${study.biochemist.profile.lastName || ''}`.trim()
+                            : '',
+                        pdfFile: null,
+                        pdfUrl: study.pdfUrl ? `http://localhost:3000${study.pdfUrl}` : '',
+                        id: study.id?.toString(),
+                        status: study.status?.name?.toLowerCase().includes('completed') ? 'completado'
+                            : study.status?.name?.toLowerCase().includes('partial') ? 'parcial'
+                                : 'en-proceso'
+                    }
+
+                    setEstudioData(estudio)
                     setCurrentView('cargar')
                 }
+            } catch (e) {
+                console.error('[cargar-nuevo] error loading study:', e)
+            } finally {
+                setLoading(false)
             }
-        } catch (e) {
-            // ignore
         }
+
+        loadStudy()
     }, [searchParams])
 
     const handleCargarEstudio = (data: EstudioData, opts?: { autoComplete?: boolean }) => {
-        // If autoComplete flag present, persist metadata and stay in 'cargar'
-        if (opts?.autoComplete) {
-            const nuevoEstudio = { ...data, status: 'completado' as const }
+        // Actualizar el estudio en la BD
+        const updateStudy = async () => {
             try {
-                const raw = localStorage.getItem('estudios_metadata')
-                const metas = raw ? JSON.parse(raw) as Array<Record<string, unknown>> : []
-                const rest = { ...nuevoEstudio } as Record<string, unknown>
-                // @ts-ignore delete runtime-only
-                delete rest['pdfFile']
-                metas.push(rest)
-                localStorage.setItem('estudios_metadata', JSON.stringify(metas))
+                if (!data.id) {
+                    console.warn('No study ID provided')
+                    return
+                }
+
+                const formData = new FormData()
+                if (data.pdfFile) {
+                    formData.append('pdf', data.pdfFile)
+                }
+
+                const response = await authFetch(`http://localhost:3000/api/studies/${data.id}`, {
+                    method: 'PATCH',
+                    body: formData
+                })
+
+                if (!response.ok) {
+                    throw new Error('Error actualizando estudio')
+                }
+
+                setToastMessage('Estudio actualizado exitosamente')
+                setShowToast(true)
+
+                setTimeout(() => {
+                    router.push('/estudios/proceso')
+                }, 600)
             } catch (e) {
-                console.error('Error persisting metadata on load', e)
+                console.error('Error actualizando estudio:', e)
+                setToastMessage('Error al actualizar estudio')
+                setShowToast(true)
             }
-            setEstudioData(null)
-            setCurrentView('cargar')
+        }
+
+        if (opts?.autoComplete) {
+            updateStudy()
             return
         }
 
-        // If this payload has an id, update the pre-created en_proceso entry instead of appending
-        try {
-            const raw = localStorage.getItem('estudios_metadata')
-            const metas = raw ? JSON.parse(raw) as Array<Record<string, any>> : []
-            if (data.id) {
-                const idx = metas.findIndex(m => m.id === data.id)
-                const toStore = { ...data } as Record<string, any>
-                // @ts-ignore
-                delete toStore['pdfFile']
-                // If there's an existing en_proceso item, update it with the PDF url but DO NOT change its status yet.
-                if (idx >= 0) {
-                    metas[idx] = { ...metas[idx], ...toStore }
-                    localStorage.setItem('estudios_metadata', JSON.stringify(metas))
-                    // show preview so user can choose Parcial / Completado
-                    setEstudioData({ ...(metas[idx] as Record<string, any>) } as EstudioData)
-                    setCurrentView('revisar')
-                    // user feedback: toast that pdf was added
-                    setToastMessage('PDF agregado')
-                    setShowToast(true)
-                    return
-                }
-            }
-            // Otherwise save metadata and go back to dashboard/revision
-            try {
-                const rest = { ...data } as Record<string, any>
-                // @ts-ignore
-                delete rest['pdfFile']
-                metas.push(rest)
-                localStorage.setItem('estudios_metadata', JSON.stringify(metas))
-                setEstudioData(null)
-                router.push('/revision')
-            } catch (e) {
-                console.error('[cargar-nuevo] error persisting metadata', e)
-                setEstudioData(data)
-                setCurrentView('revisar')
-            }
-        } catch (e) {
-            console.error('[cargar-nuevo] error updating existing en_proceso metadata', e)
-            try {
-                const raw = localStorage.getItem('estudios_metadata')
-                const metas = raw ? JSON.parse(raw) as Array<Record<string, any>> : []
-                const rest = { ...data } as Record<string, any>
-                // @ts-ignore
-                delete rest['pdfFile']
-                metas.push(rest)
-                localStorage.setItem('estudios_metadata', JSON.stringify(metas))
-                setEstudioData(null)
-                router.push('/revision')
-            } catch (err) {
-                setEstudioData(data)
-                setCurrentView('revisar')
-            }
-        }
+        setEstudioData(data)
+        setCurrentView('revisar')
     }
-
-    const router = useRouter()
 
     const handleVolver = () => {
         setCurrentView("cargar")
@@ -117,63 +128,79 @@ export default function Page() {
 
     const handleCompletado = () => {
         if (!estudioData) return
-        try {
-            const raw = localStorage.getItem('estudios_metadata')
-            const metas = raw ? JSON.parse(raw) as Array<Record<string, any>> : []
-            const idx = metas.findIndex(m => m.id === estudioData.id)
-            const rest = { ...(estudioData as Record<string, any>), status: 'completado' }
-            // @ts-ignore
-            delete rest['pdfFile']
-            if (idx >= 0) {
-                metas[idx] = { ...metas[idx], ...rest }
-            } else {
-                metas.push(rest)
+
+        const updateStatus = async () => {
+            try {
+                const response = await authFetch(`http://localhost:3000/api/studies/${estudioData.id}/status`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'COMPLETED' })
+                })
+
+                if (!response.ok) {
+                    throw new Error('Error marcando como completado')
+                }
+
+                setToastMessage('Estudio marcado como completado')
+                setShowToast(true)
+
+                setTimeout(() => {
+                    setEstudioData(null)
+                    router.push('/estudios/completados')
+                }, 600)
+            } catch (e) {
+                console.error('Error marcando como completado:', e)
+                setToastMessage('Error al marcar como completado')
+                setShowToast(true)
             }
-            localStorage.setItem('estudios_metadata', JSON.stringify(metas))
-        } catch (e) {
-            console.error('Error persisting metadata on completed', e)
         }
-        // show toast and navigate shortly after so message is visible
-        setToastMessage('Estudio marcado como completado')
-        setShowToast(true)
-        setTimeout(() => {
-            setEstudioData(null)
-            router.push('/revision')
-        }, 600)
+
+        updateStatus()
     }
 
     const handleParcial = () => {
         if (!estudioData) return
-        try {
-            const raw = localStorage.getItem('estudios_metadata')
-            const metas = raw ? JSON.parse(raw) as Array<Record<string, any>> : []
-            const idx = metas.findIndex(m => m.id === estudioData.id)
-            const rest = { ...(estudioData as Record<string, any>), status: 'parcial' }
-            // @ts-ignore delete runtime-only
-            delete rest['pdfFile']
-            if (idx >= 0) {
-                metas[idx] = { ...metas[idx], ...rest }
-            } else {
-                metas.push(rest)
+
+        const updateStatus = async () => {
+            try {
+                const response = await authFetch(`http://localhost:3000/api/studies/${estudioData.id}/status`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'PARTIAL' })
+                })
+
+                if (!response.ok) {
+                    throw new Error('Error marcando como parcial')
+                }
+
+                setToastMessage('Estudio marcado como parcial')
+                setShowToast(true)
+
+                setTimeout(() => {
+                    setEstudioData(null)
+                    router.push('/estudios/parciales')
+                }, 600)
+            } catch (e) {
+                console.error('Error marcando como parcial:', e)
+                setToastMessage('Error al marcar como parcial')
+                setShowToast(true)
             }
-            localStorage.setItem('estudios_metadata', JSON.stringify(metas))
-            console.debug('[cargar-nuevo] persisted parcial, metas count:', metas.length)
-            // user feedback via toast
-            setToastMessage('Estudio marcado como parcial y guardado')
-            setShowToast(true)
-        } catch (e) {
-            console.error('Error persisting metadata on parcial', e)
         }
-        setTimeout(() => {
-            setEstudioData(null)
-            router.push('/revision')
-        }, 600)
+
+        updateStatus()
     }
 
 
     return (
         <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-            {currentView === "cargar" && <CargarNuevo onCargarEstudio={handleCargarEstudio} initialData={estudioData ?? undefined} initialId={estudioData?.id} />}
+            {loading ? (
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                    <p className="mt-4 text-gray-600">Cargando estudio...</p>
+                </div>
+            ) : currentView === "cargar" && (
+                <CargarNuevo onCargarEstudio={handleCargarEstudio} initialData={estudioData ?? undefined} initialId={estudioData?.id} />
+            )}
             {currentView === "revisar" && estudioData && (
                 <RevisarEstudio
                     estudioData={estudioData}

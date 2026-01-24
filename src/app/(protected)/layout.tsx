@@ -2,13 +2,15 @@
 
 import { Sidebar } from "@/componentes/SideBar";
 import { useAuth } from "@/utils/useAuth";
+import { useRouter } from "next/navigation";
 
 export default function ProtectedLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    const { isAuthenticated, isLoading } = useAuth();
+    const router = useRouter();
+    const { isAuthenticated, isLoading, userType } = useAuth();
 
     if (isLoading) {
         return (
@@ -22,6 +24,12 @@ export default function ProtectedLayout({
     }
 
     if (!isAuthenticated) {
+        return null;
+    }
+
+    // Redirige a la vista de paciente si el usuario tiene rol de paciente
+    if (userType === "patient") {
+        router.replace("/paciente/dashboard");
         return null;
     }
 

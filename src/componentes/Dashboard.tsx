@@ -390,10 +390,6 @@ export default function Dashboard({ completados = 0, totales = 0, ultimoCompleta
                         </div>
                     </div>
                 </div>
-                <div className="flex justify-end mt-4">
-                    <button onClick={() => setShowPatientModal(true)} className="px-4 py-2 bg-yellow-400 text-black rounded-lg shadow-sm hover:bg-yellow-500">Cargar nuevo</button>
-                </div>
-
 
                 {/* Dynamic list area (completados / parciales) shown below when a tile is active */}
                 {activeView !== 'none' && (

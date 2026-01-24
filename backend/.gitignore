@@ -3,3 +3,6 @@ node_modules
 .env
 
 /generated/prisma
+
+# runtime uploads (do not commit PDFs)
+/uploads/

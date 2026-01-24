@@ -8,6 +8,8 @@ export default function Navbar() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const router = useRouter();
     const pathname = usePathname();
+    const isHome = pathname === '/';
+    const isAuthFlow = pathname?.startsWith('/login') || pathname?.startsWith('/registro');
 
     useEffect(() => {
         const token = getAuthToken();
@@ -19,11 +21,12 @@ export default function Navbar() {
         localStorage.removeItem('userType');
         localStorage.removeItem('userData');
         setIsAuthenticated(false);
+        sessionStorage.setItem('justLoggedOut', 'true'); // ⬅️ AGREGAR ESTA LÍNEA
         router.push('/');
     };
 
     // No mostrar navbar en rutas con Sidebar
-    const hiddenRoutes = ['/dashboard', '/estudios', '/historial', '/configuraciones', '/ayuda', '/cargar-nuevo', '/revision'];
+    const hiddenRoutes = ['/dashboard', '/estudios', '/historial', '/configuraciones', '/ayuda', '/cargar-nuevo', '/revision', '/paciente'];
     const shouldHideNavbar = hiddenRoutes.some(route => pathname?.startsWith(route));
 
     if (shouldHideNavbar) {
@@ -49,7 +52,7 @@ export default function Navbar() {
                 </div>
 
                 {/* Navigation Links */}
-                {isAuthenticated && (
+                {isAuthenticated && !isHome && !isAuthFlow && (
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => router.push('/dashboard')}

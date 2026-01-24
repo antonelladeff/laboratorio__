@@ -3,8 +3,10 @@
 import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import type { EstudioData } from "../app/(protected)/revision/page"
 import { savePdf } from "../utils/estudiosStore"
+import authFetch from "@/utils/authFetch"
 
 const Upload = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -36,6 +38,19 @@ const User = ({ className }: { className?: string }) => (
   </svg>
 )
 
+const Search = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <circle strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} cx="11" cy="11" r="8" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-4.35-4.35" />
+  </svg>
+)
+
+const CheckCircle = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+)
+
 const X = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <line strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} x1="18" y1="6" x2="6" y2="18" />
@@ -43,45 +58,276 @@ const X = ({ className }: { className?: string }) => (
   </svg>
 )
 
+type EstadoEstudio = "en_proceso" | "parcial" | "completado"
+
 interface CargarNuevoProps {
   onCargarEstudio: (data: EstudioData, opts?: { autoComplete?: boolean }) => void
   initialId?: string
   initialData?: Partial<EstudioData>
 }
 
+interface PatientData {
+  dni: string
+  nombreApellido: string
+  obraSocial: string
+}
+
 export function CargarNuevo({ onCargarEstudio, initialId, initialData }: CargarNuevoProps) {
-  const [formData, setFormData] = useState({
-    nombreApellido: initialData?.nombreApellido ?? "",
-    dni: initialData?.dni ?? "",
-    fecha: initialData?.fecha ?? "",
-    obraSocial: initialData?.obraSocial ?? "",
-    medico: initialData?.medico ?? "",
+  const router = useRouter()
+
+  // PASO 1: Búsqueda/creación de paciente
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
+  const [searchDni, setSearchDni] = useState("")
+  const [patientFound, setPatientFound] = useState(false)
+  const [isNewPatient, setIsNewPatient] = useState(false)
+  const [patientData, setPatientData] = useState<PatientData>({
+    dni: "",
+    nombreApellido: "",
+    obraSocial: ""
   })
 
-  // If the parent provides initialData after mount (e.g. via ?id=... navigation),
-  // update the local form state so fields are populated.
-  useEffect(() => {
-    if (initialData) {
-      setFormData({
-        nombreApellido: initialData.nombreApellido ?? "",
-        dni: initialData.dni ?? "",
-        fecha: initialData.fecha ?? "",
-        obraSocial: initialData.obraSocial ?? "",
-        medico: initialData.medico ?? "",
-      })
-      // reset file state when loading an existing record
-      setPdfFile(null)
-      if (fileInputRef.current) fileInputRef.current.value = ""
-    }
-  }, [initialData])
+  // PASO 2: Datos del estudio
+  const [studyData, setStudyData] = useState({
+    fecha: new Date().toISOString().split('T')[0],
+    medico: "",
+    tipoEstudio: "",
+    estado: "en_proceso" as EstadoEstudio
+  })
+
+  // PASO 3: Archivo (opcional según estado)
   const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [studyCreatedId, setStudyCreatedId] = useState<string | null>(null)
+  const [editingExistingStudy, setEditingExistingStudy] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+  const [now, setNow] = useState<Date>(new Date())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  // Crear URL del PDF y limpiarla cuando cambie o se desmonte
+  useEffect(() => {
+    if (pdfFile) {
+      const url = URL.createObjectURL(pdfFile)
+      setPdfUrl(url)
+      return () => URL.revokeObjectURL(url)
+    } else {
+      setPdfUrl(null)
+    }
+  }, [pdfFile])
+
+  // Cargar estudio existente si viene con ID o initialData
+  useEffect(() => {
+    if (initialData) {
+      // Si viene initialData (desde la API), usarla directamente
+      console.log('[CargarNuevo] Loaded initialData:', initialData)
+
+      setPatientData({
+        dni: initialData.dni || "",
+        nombreApellido: initialData.nombreApellido || "",
+        obraSocial: initialData.obraSocial || ""
+      })
+
+      setStudyData({
+        fecha: initialData.fecha || new Date().toISOString().split('T')[0],
+        medico: initialData.medico || "",
+        tipoEstudio: "",
+        estado: (initialData.status as EstadoEstudio) || "en_proceso"
+      })
+
+      setStudyCreatedId(initialData.id?.toString() || null)
+      setEditingExistingStudy(true)
+      setPatientFound(true)
+      setCurrentStep(3)
+    } else if (initialId) {
+      // Si solo hay initialId, buscar en localStorage
+      try {
+        const raw = localStorage.getItem('estudios_metadata')
+        const metas = raw ? JSON.parse(raw) : []
+        const found = metas.find((m: any) => m.id === initialId)
+
+        if (found) {
+          // Precarga los datos del paciente
+          setPatientData({
+            dni: found.dni || "",
+            nombreApellido: found.nombreApellido || "",
+            obraSocial: found.obraSocial || ""
+          })
+
+          // Precarga los datos del estudio
+          setStudyData({
+            fecha: found.fecha || new Date().toISOString().split('T')[0],
+            medico: found.medico || "",
+            tipoEstudio: found.tipoEstudio || "",
+            estado: found.estado || "parcial"
+          })
+
+          // Salta al paso 3 para cargar archivo
+          setCurrentStep(3)
+          setEditingExistingStudy(true)
+          setStudyCreatedId(initialId)
+        }
+      } catch (e) {
+        console.error('Error loading existing study:', e)
+      }
+    }
+  }, [initialId, initialData])
+  const handleSearchPatient = async () => {
+    if (!searchDni.trim()) {
+      alert("Ingrese un DNI para buscar")
+      return
+    }
+
+    try {
+      // Buscar en el backend
+      const response = await authFetch(`http://localhost:3000/api/studies/patient/${searchDni.trim()}`)
+
+      if (response.ok) {
+        const result = await response.json()
+        const patient = result?.data
+
+        // Estructura de respuesta esperada del backend (study.controllers.getPatientByDni):
+        // { id, dni, firstName, lastName, email }
+        const firstName = patient?.firstName ?? patient?.profile?.firstName ?? ""
+        const lastName = patient?.lastName ?? patient?.profile?.lastName ?? ""
+
+        // Paciente encontrado - autocompletar datos con seguridad
+        setPatientData({
+          dni: patient?.dni ?? searchDni.trim(),
+          nombreApellido: `${firstName} ${lastName}`.trim(),
+          obraSocial: patient?.socialInsurance ?? ""
+        })
+        setPatientFound(true)
+        setIsNewPatient(false)
+      } else {
+        // Paciente no encontrado
+        setPatientData({
+          dni: searchDni.trim(),
+          nombreApellido: "",
+          obraSocial: ""
+        })
+        setPatientFound(false)
+        setIsNewPatient(true)
+      }
+    } catch (e) {
+      console.error('Error searching patient:', e)
+      // Si hay error, asumir que no existe
+      setPatientData({
+        dni: searchDni.trim(),
+        nombreApellido: "",
+        obraSocial: ""
+      })
+      setPatientFound(false)
+      setIsNewPatient(true)
+    }
   }
 
+  // Guardar/actualizar paciente
+  const handleSavePatient = async () => {
+    if (!patientData.dni || !patientData.nombreApellido) {
+      alert("Complete DNI y Nombre del paciente")
+      return
+    }
+
+    try {
+      // Si el paciente ya existe (fue encontrado), solo pasar al siguiente paso
+      if (patientFound) {
+        setCurrentStep(2)
+        return
+      }
+
+      // Si es nuevo, registrarlo en el backend
+      const [firstName, ...lastNameParts] = patientData.nombreApellido.split(' ')
+      const lastName = lastNameParts.join(' ') || firstName
+
+      const response = await authFetch('http://localhost:3000/api/auth/register-patient', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          dni: patientData.dni,
+          firstName,
+          lastName,
+          birthDate: new Date().toISOString().split('T')[0]
+        })
+      })
+
+      // Si ya existe, tratarlo como encontrado y avanzar
+      if (response.status === 409) {
+        setPatientFound(true)
+        setIsNewPatient(false)
+        setCurrentStep(2)
+        return
+      }
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || 'Error al registrar paciente')
+      }
+
+      const result = await response.json()
+      console.log('Paciente registrado:', result)
+
+      // Pasar al siguiente paso
+      setCurrentStep(2)
+    } catch (e: any) {
+      console.error('Error saving patient:', e)
+      alert(e.message || 'Error al guardar paciente')
+    }
+  }
+
+  // Crear estudio (sin archivo obligatorio)
+  const handleCreateStudy = async () => {
+    if (!studyData.fecha || !studyData.medico) {
+      alert("Complete fecha y médico")
+      return
+    }
+
+    try {
+      // Preparar FormData para enviar al backend
+      const formData = new FormData()
+      formData.append('dni', patientData.dni)
+      formData.append('studyName', studyData.tipoEstudio || 'Estudio médico')
+      formData.append('studyDate', studyData.fecha)
+      if (patientData.obraSocial) {
+        formData.append('socialInsurance', patientData.obraSocial)
+      }
+
+      const response = await authFetch('http://localhost:3000/api/studies', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || 'Error al crear estudio')
+      }
+
+      const result = await response.json()
+      console.log('Estudio creado:', result)
+
+      setStudyCreatedId(result.data.id.toString())
+
+      // Si el estado es "en_proceso", podemos finalizar aquí
+      if (studyData.estado === "en_proceso") {
+        alert("✓ Estudio creado exitosamente en estado: EN PROCESO")
+        router.push('/dashboard')
+      } else {
+        // Si es parcial o completado, pasar al paso 3 para subir archivo
+        setCurrentStep(3)
+      }
+    } catch (e: any) {
+      console.error('Error creating study:', e)
+      alert(e.message || 'Error al crear estudio')
+    }
+  }
+
+  // Manejar archivo
   const handleFileChange = (file: File | null) => {
     if (file && file.type === "application/pdf") {
       setPdfFile(file)
@@ -119,96 +365,87 @@ export function CargarNuevo({ onCargarEstudio, initialId, initialData }: CargarN
     }
   }
 
-  const handleSubmit = async (autoComplete = false) => {
-    // Validar que todos los campos estén completos
-    if (!formData.nombreApellido || !formData.dni || !formData.fecha || !formData.obraSocial || !formData.medico) {
-      alert("Por favor, complete todos los campos")
+  const handleRequestFinish = () => {
+    if (studyData.estado === "completado" && !pdfFile) {
+      alert("El archivo es obligatorio para estudios completados")
+      return
+    }
+    setShowConfirm(true)
+  }
+
+  // Finalizar con archivo
+  const handleFinishWithFile = async () => {
+    if (!pdfFile && studyData.estado === "completado") {
+      alert("El archivo es obligatorio para estudios completados")
       return
     }
 
-    // If there's no pdf and this is NOT a pre-created en_proceso (initialId), require PDF
-    if (!pdfFile && !initialId) {
-      alert("Por favor, seleccione un archivo PDF")
+    if (!studyCreatedId) {
+      alert("Error: No se encontró el ID del estudio")
       return
     }
 
-    // Guardar PDF en IndexedDB y crear un id para referenciarlo
-    const id = initialId ?? `estudio_${Date.now()}_${Math.floor(Math.random() * 10000)}`
-    let saveSucceeded = false
-    console.debug('[cargar] handleSubmit start', { formData, fileName: pdfFile?.name, id })
     try {
+      // Si hay PDF, actualizar el estudio con el archivo
       if (pdfFile) {
-        await savePdf(id, pdfFile)
-        saveSucceeded = true
-        console.debug('[cargar] savePdf succeeded', id)
-      }
-    } catch (err) {
-      console.error('[cargar] Error guardando PDF en IndexedDB', err)
-      // continuar: queremos que el padre reciba metadata para debugging
-    }
-
-    // Crear URL del PDF para visualizacion temporal
-    const pdfUrl = pdfFile ? URL.createObjectURL(pdfFile) : ''
-
-    const payload = {
-      ...formData,
-      pdfFile: null,
-      pdfUrl,
-      id,
-    } as EstudioData
-
-    // Persistir temporalmente para depuración (permite verificar en console si el hijo envió datos)
-    try {
-      localStorage.setItem('estudio_in_memory', JSON.stringify(payload))
-      console.debug('[cargar] estudio_in_memory persisted', payload)
-    } catch (e) {
-      console.warn('[cargar] no se pudo persistir estudio_in_memory', e)
-    }
-
-    // Si se solicitó autoComplete, persistir metadata como fallback (redundancia)
-    if (autoComplete) {
-      try {
-        const raw2 = localStorage.getItem('estudios_metadata')
-        const metas = raw2 ? JSON.parse(raw2) as Array<Record<string, unknown>> : []
-        const existingIds = new Set(metas.map(m => (m.id as string | undefined)))
-        if (!existingIds.has(payload.id)) {
-          const rest = { ...(payload as Record<string, unknown>), status: 'completado' } as Record<string, unknown>
-          // @ts-ignore
-          delete rest['pdfFile']
-          metas.push(rest)
-          localStorage.setItem('estudios_metadata', JSON.stringify(metas))
-          console.debug('[cargar] fallback persisted estudios_metadata', metas)
-        } else {
-          console.debug('[cargar] fallback skipped persist because id already exists', payload.id)
+        const formData = new FormData()
+        formData.append('dni', patientData.dni)
+        formData.append('studyName', studyData.tipoEstudio || 'Estudio médico')
+        formData.append('studyDate', studyData.fecha)
+        if (patientData.obraSocial) {
+          formData.append('socialInsurance', patientData.obraSocial)
         }
-      } catch (e) {
-        console.warn('[cargar] no se pudo persistir estudios_metadata en fallback', e)
-      }
-    }
+        formData.append('pdf', pdfFile)
 
-    // Llamar al padre con manejo de errores
-    try {
-      onCargarEstudio(payload, { autoComplete })
-      console.debug('[cargar] onCargarEstudio called', payload, { autoComplete })
-    } catch (e) {
-      console.error('[cargar] onCargarEstudio threw', e)
-    }
+        // Actualizar el estudio existente o crear uno nuevo con PDF
+        const response = await authFetch('http://localhost:3000/api/studies', {
+          method: 'POST',
+          body: formData
+        })
 
-    // Si se pidió autoComplete, redirigir al /revision para mostrar el dashboard actualizado
-    if (autoComplete) {
-      try {
-        window.location.href = '/revision'
-      } catch (e) {
-        console.warn('[cargar] no se pudo redirigir a /revision', e)
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.message || 'Error al cargar archivo')
+        }
+
+        const result = await response.json()
+        console.log('Estudio actualizado con PDF:', result)
       }
+
+      // Si necesitamos actualizar el estado
+      if (studyData.estado !== "en_proceso") {
+        const statusMap: Record<string, string> = {
+          en_proceso: 'IN_PROGRESS',
+          parcial: 'PARTIAL',
+          completado: 'COMPLETED'
+        }
+
+        const response = await authFetch(`http://localhost:3000/api/studies/${studyCreatedId}/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            statusName: statusMap[studyData.estado]
+          })
+        })
+
+        if (!response.ok) {
+          console.warn('No se pudo actualizar el estado')
+        }
+      }
+
+      alert(`✓ Estudio finalizado exitosamente con estado: ${studyData.estado.toUpperCase()}`)
+      router.push('/dashboard')
+    } catch (e: any) {
+      console.error('Error finishing study:', e)
+      alert(e.message || 'Error al finalizar estudio')
     }
   }
 
-  const [now, setNow] = useState<Date>(new Date())
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(t)
-  }, [])
+  const handleCancel = () => {
+    router.back()
+  }
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
@@ -226,7 +463,7 @@ export function CargarNuevo({ onCargarEstudio, initialId, initialData }: CargarN
           <div>
             <h1 className="text-2xl font-bold text-black mb-1">Cargar Estudio</h1>
             <p className="text-gray-600 text-sm">
-              Complete la información del paciente y adjunte el archivo del estudio
+              Proceso paso a paso para registro profesional de estudios
             </p>
           </div>
           <div className="flex gap-4">
@@ -242,172 +479,494 @@ export function CargarNuevo({ onCargarEstudio, initialId, initialData }: CargarN
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-6 py-12">
-        <div className="space-y-8">
-          <div className="space-y-6">
-            <div className="flex items-center gap-3 pb-4">
-              <User className="w-5 h-5 text-blue-600" />
-              <h2 className="text-xl font-semibold text-black">Información del Paciente</h2>
+      <div className="max-w-3xl mx-auto px-6 py-8">
+        {/* Indicador de pasos */}
+        <div className="mb-8">
+          <div className="flex items-center justify-center gap-4">
+            {/* Paso 1 */}
+            <div className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold ${currentStep === 1 ? 'bg-blue-600 text-white' :
+                currentStep > 1 ? 'bg-green-500 text-white' :
+                  'bg-gray-300 text-gray-600'
+                }`}>
+                {currentStep > 1 ? <CheckCircle className="w-6 h-6" /> : '1'}
+              </div>
+              <span className="ml-2 text-sm font-medium">Paciente</span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <label htmlFor="nombre" className="text-sm font-medium text-black block">
-                  Nombre y apellido
-                </label>
-                <input
-                  id="nombre"
-                  value={formData.nombreApellido}
-                  onChange={(e) => handleInputChange("nombreApellido", e.target.value)}
-                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
-                  placeholder="Ingrese nombre completo"
-                />
-              </div>
+            <div className="w-16 h-1 bg-gray-300"></div>
 
-              <div className="space-y-3">
-                <label htmlFor="dni" className="text-sm font-medium text-black block">
-                  DNI
-                </label>
-                <input
-                  id="dni"
-                  value={formData.dni}
-                  onChange={(e) => handleInputChange("dni", e.target.value)}
-                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
-                  placeholder="Ingrese DNI"
-                />
+            {/* Paso 2 */}
+            <div className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold ${currentStep === 2 ? 'bg-blue-600 text-white' :
+                currentStep > 2 ? 'bg-green-500 text-white' :
+                  'bg-gray-300 text-gray-600'
+                }`}>
+                {currentStep > 2 ? <CheckCircle className="w-6 h-6" /> : '2'}
               </div>
+              <span className="ml-2 text-sm font-medium">Estudio</span>
             </div>
 
-            <div className="space-y-3">
-              <label htmlFor="fecha" className="text-sm font-medium text-black block">
-                Fecha del estudio
-              </label>
-              <input
-                id="fecha"
-                type="date"
-                value={formData.fecha}
-                onChange={(e) => handleInputChange("fecha", e.target.value)}
-                className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
-              />
-            </div>
+            <div className="w-16 h-1 bg-gray-300"></div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <label htmlFor="obra-social" className="text-sm font-medium text-black block">
-                  Obra social
-                </label>
-                <input
-                  id="obra-social"
-                  value={formData.obraSocial}
-                  onChange={(e) => handleInputChange("obraSocial", e.target.value)}
-                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
-                  placeholder="Ej: OSDE, Swiss Medical"
-                />
+            {/* Paso 3 */}
+            <div className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold ${currentStep === 3 ? 'bg-blue-600 text-white' :
+                'bg-gray-300 text-gray-600'
+                }`}>
+                3
               </div>
-
-              <div className="space-y-3">
-                <label htmlFor="medico" className="text-sm font-medium text-black block">
-                  Médico
-                </label>
-                <input
-                  id="medico"
-                  value={formData.medico}
-                  onChange={(e) => handleInputChange("medico", e.target.value)}
-                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
-                  placeholder="Dr./Dra. Nombre"
-                />
-              </div>
+              <span className="ml-2 text-sm font-medium">Archivo</span>
             </div>
           </div>
+        </div>
 
-          <div className="space-y-6">
-            <div className="flex items-center gap-3 pb-4">
-              <Upload className="w-5 h-5 text-blue-600" />
-              <h2 className="text-xl font-semibold text-black">Archivo del Estudio</h2>
+        {/* PASO 1: Identificar/Crear Paciente */}
+        {currentStep === 1 && (
+          <div className="bg-white rounded-xl shadow-md p-8 space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b border-gray-200">
+              <User className="w-6 h-6 text-blue-600" />
+              <div>
+                <h2 className="text-xl font-semibold text-black">Paso 1: Identificar Paciente</h2>
+                <p className="text-sm text-gray-600">Busque por DNI o cree un nuevo paciente</p>
+              </div>
             </div>
 
-            {!pdfFile ? (
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-16 text-center transition-all cursor-pointer group ${isDragging
-                  ? "border-blue-600 bg-blue-50"
-                  : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/50"
-                  }`}
-              >
+            {/* Búsqueda por DNI */}
+            <div className="space-y-4">
+              <label className="text-sm font-medium text-black block">
+                Buscar por DNI
+              </label>
+              <div className="flex gap-3">
                 <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf"
-                  onChange={handleFileInputChange}
-                  className="hidden"
+                  type="text"
+                  value={searchDni}
+                  onChange={(e) => setSearchDni(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPatient()}
+                  className="flex-1 bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
+                  placeholder="Ingrese DNI del paciente"
                 />
-                <div className="space-y-4">
-                  <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto group-hover:bg-blue-200 transition-colors">
-                    <Upload className="w-8 h-8 text-blue-600" />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-lg font-medium text-gray-900">Seleccionar archivo</p>
-                    <p className="text-sm text-gray-600">
-                      Arrastra y suelta tu archivo aquí o haz clic para seleccionar
-                    </p>
-                    <p className="text-xs text-gray-500">PDF • Máximo 10MB</p>
+                <button
+                  onClick={handleSearchPatient}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold shadow-sm hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                  <Search className="w-5 h-5" />
+                  Buscar / Crear
+                </button>
+              </div>
+
+              {/* Mensaje de resultado */}
+              {patientFound && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-green-800">¡Paciente encontrado!</p>
+                    <p className="text-sm text-green-700">Los datos se han autocompletado.</p>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="border-2 border-blue-600 rounded-xl p-6 bg-blue-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
-                      <FileText className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{pdfFile.name}</p>
-                      <p className="text-sm text-gray-600">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
-                    </div>
+              )}
+
+              {isNewPatient && !patientFound && searchDni && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+                  <div className="w-5 h-5 bg-blue-200 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-blue-600 text-xs font-bold">!</span>
                   </div>
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">Paciente nuevo</p>
+                    <p className="text-sm text-blue-700">Complete los datos para registrarlo.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Formulario de paciente */}
+            {(patientFound || isNewPatient) && (
+              <div className="space-y-4 pt-4 border-t border-gray-200">
+                <h3 className="font-medium text-gray-900">Datos del Paciente</h3>
+
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-black block">DNI</label>
+                  <input
+                    type="text"
+                    value={patientData.dni}
+                    disabled
+                    className="w-full bg-gray-100 border-2 border-gray-300 rounded-lg px-4 py-3 text-gray-600"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-black block">
+                    Nombre y Apellido <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={patientData.nombreApellido}
+                    onChange={(e) => setPatientData({ ...patientData, nombreApellido: e.target.value })}
+                    disabled={patientFound}
+                    className={`w-full ${patientFound ? 'bg-gray-100' : 'bg-white'} border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors`}
+                    placeholder="Ingrese nombre completo"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <label className="text-sm font-medium text-black block">Obra Social</label>
+                  <input
+                    type="text"
+                    value={patientData.obraSocial}
+                    onChange={(e) => setPatientData({ ...patientData, obraSocial: e.target.value })}
+                    className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
+                    placeholder="Ej: OSDE, Swiss Medical"
+                  />
+                </div>
+
+                <div className="flex gap-4 pt-4">
                   <button
-                    onClick={handleRemoveFile}
-                    className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center hover:bg-red-200 transition-colors"
+                    onClick={handleCancel}
+                    className="flex-1 bg-white border-2 border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
                   >
-                    <X className="w-4 h-4 text-red-600" />
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSavePatient}
+                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold shadow-sm hover:bg-blue-700 transition-colors"
+                  >
+                    Continuar al Paso 2
                   </button>
                 </div>
               </div>
             )}
           </div>
+        )}
 
-          <div className="flex flex-col sm:flex-row gap-4 pt-8">
-            <button
-              onClick={() => window.location.reload()}
-              className="flex-1 bg-white border-2 border-blue-600 text-blue-600 px-8 py-4 rounded-lg font-semibold shadow-sm hover:bg-blue-50 hover:border-blue-700 hover:text-blue-700 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={() => handleSubmit(false)}
-              className="flex-1 bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold shadow-sm hover:bg-blue-700 transition-colors"
-            >
-              Cargar Estudio
-            </button>
-          </div>
-
-          <div className="bg-red-50 rounded-lg p-6 border border-red-200">
-            <div className="flex gap-3">
-              <div className="w-5 h-5 bg-red-200 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-red-600 text-xs font-bold">!</span>
+        {/* PASO 2: Crear Estudio */}
+        {currentStep === 2 && (
+          <div className="bg-white rounded-xl shadow-md p-8 space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b border-gray-200">
+              <FileText className="w-6 h-6 text-blue-600" />
+              <div>
+                <h2 className="text-xl font-semibold text-black">Paso 2: Crear Estudio</h2>
+                <p className="text-sm text-gray-600">Registre el estudio (el archivo se carga después)</p>
               </div>
-              <p className="text-sm text-red-600">
-                Verifique que todos los datos sean correctos antes de cargar el archivo. El estudio será procesado y
-                enviado al paciente
+            </div>
+
+            {/* Resumen del paciente */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Paciente seleccionado</p>
+              <p className="font-medium text-gray-900">{patientData.nombreApellido}</p>
+              <p className="text-sm text-gray-600">DNI: {patientData.dni}</p>
+              {patientData.obraSocial && <p className="text-sm text-gray-600">Obra Social: {patientData.obraSocial}</p>}
+            </div>
+
+            {/* Datos del estudio */}
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-black block">
+                  Fecha del Estudio <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={studyData.fecha}
+                  onChange={(e) => setStudyData({ ...studyData, fecha: e.target.value })}
+                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black focus:outline-none focus:border-blue-600 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-black block">
+                  Profesional/Médico <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={studyData.medico}
+                  onChange={(e) => setStudyData({ ...studyData, medico: e.target.value })}
+                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
+                  placeholder="Dr./Dra. Nombre"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-black block">Tipo de Estudio</label>
+                <input
+                  type="text"
+                  value={studyData.tipoEstudio}
+                  onChange={(e) => setStudyData({ ...studyData, tipoEstudio: e.target.value })}
+                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black placeholder:text-gray-400 focus:outline-none focus:border-blue-600 transition-colors"
+                  placeholder="Ej: Hemograma, Perfil lipídico"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-black block">
+                  Estado del Estudio <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={studyData.estado}
+                  onChange={(e) => setStudyData({ ...studyData, estado: e.target.value as EstadoEstudio })}
+                  className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-black focus:outline-none focus:border-blue-600 transition-colors"
+                >
+                  <option value="en_proceso">🟡 En Proceso (sin archivo aún)</option>
+                  <option value="parcial">🟠 Parcial (resultados preliminares)</option>
+                  <option value="completado">🟢 Completado (requiere archivo)</option>
+                </select>
+                <p className="text-xs text-gray-600">
+                  {studyData.estado === "en_proceso" && "El estudio se registra sin archivo. Podrá cargarlo más tarde."}
+                  {studyData.estado === "parcial" && "El estudio tiene resultados preliminares. El archivo es opcional."}
+                  {studyData.estado === "completado" && "El estudio está finalizado. Deberá cargar el archivo obligatoriamente."}
+                </p>
+              </div>
+            </div>
+
+            {/* Información importante */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+              <div className="w-5 h-5 bg-blue-200 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                <span className="text-blue-600 text-xs font-bold">i</span>
+              </div>
+              <p className="text-sm text-blue-700">
+                El estudio se creará con el estado seleccionado.
+                {studyData.estado === "en_proceso" && " No es necesario cargar el archivo ahora."}
+                {studyData.estado !== "en_proceso" && " En el siguiente paso podrá cargar el archivo del estudio."}
               </p>
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <button
+                onClick={() => setCurrentStep(1)}
+                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+              >
+                Volver
+              </button>
+              <button
+                onClick={handleCreateStudy}
+                className="flex-1 bg-green-600 text-white px-6 py-3 rounded-lg font-semibold shadow-sm hover:bg-green-700 transition-colors"
+              >
+                {studyData.estado === "en_proceso" ? "Crear Estudio" : "Crear y Continuar"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* PASO 3: Cargar Archivo (opcional según estado) */}
+        {currentStep === 3 && (
+          <div className="bg-white rounded-xl shadow-md p-8 space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b border-gray-200">
+              <Upload className="w-6 h-6 text-blue-600" />
+              <div>
+                <h2 className="text-xl font-semibold text-black">Paso 3: Cargar Archivo</h2>
+                <p className="text-sm text-gray-600">
+                  {editingExistingStudy
+                    ? "Complete la carga del estudio parcial"
+                    : `Adjunte el PDF del estudio (${studyData.estado === "completado" ? "obligatorio" : "opcional"})`}
+                </p>
+              </div>
+            </div>
+
+            {/* Resumen del paciente */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Paciente seleccionado</p>
+              <p className="font-medium text-gray-900">{patientData.nombreApellido || 'Sin nombre'}</p>
+              <p className="text-sm text-gray-600">DNI: {patientData.dni}</p>
+              {patientData.obraSocial && <p className="text-sm text-gray-600">Obra Social: {patientData.obraSocial}</p>}
+            </div>
+
+            {/* Resumen del estudio */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Estudio</p>
+              <div className="flex gap-4 text-sm text-gray-600">
+                <span>Fecha: {studyData.fecha}</span>
+                <span>•</span>
+                <span>Médico: {studyData.medico || 'Sin asignar'}</span>
+              </div>
+              <div className="pt-2 flex items-center justify-between">
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${studyData.estado === "completado" ? "bg-green-100 text-green-700" :
+                  studyData.estado === "parcial" ? "bg-orange-100 text-orange-700" :
+                    "bg-yellow-100 text-yellow-700"
+                  }`}>
+                  {studyData.estado === "completado" ? "🟢 Completado" :
+                    studyData.estado === "parcial" ? "🟠 Parcial" :
+                      "🟡 En Proceso"}
+                </span>
+                {editingExistingStudy && (
+                  <select
+                    value={studyData.estado}
+                    onChange={(e) => setStudyData({ ...studyData, estado: e.target.value as EstadoEstudio })}
+                    className="text-xs px-3 py-1 border border-gray-300 rounded bg-white"
+                  >
+                    <option value="en_proceso">En Proceso</option>
+                    <option value="parcial">Parcial</option>
+                    <option value="completado">Completado</option>
+                  </select>
+                )}
+              </div>
+            </div>
+
+            {/* Área de carga de archivo */}
+            <div className="space-y-4">
+              {!pdfFile ? (
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer group ${isDragging
+                    ? "border-blue-600 bg-blue-50"
+                    : "border-gray-300 hover:border-blue-400 hover:bg-blue-50/50"
+                    }`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                  <div className="space-y-4">
+                    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto group-hover:bg-blue-200 transition-colors">
+                      <Upload className="w-8 h-8 text-blue-600" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-lg font-medium text-gray-900">Seleccionar archivo PDF</p>
+                      <p className="text-sm text-gray-600">
+                        Arrastra y suelta tu archivo aquí o haz clic para seleccionar
+                      </p>
+                      <p className="text-xs text-gray-500">PDF • Máximo 10MB</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="border-2 border-blue-600 rounded-xl overflow-hidden bg-blue-50">
+                  {/* Vista previa del PDF */}
+                  <div className="bg-gray-100 p-4">
+                    {pdfUrl && (
+                      <iframe
+                        src={pdfUrl}
+                        className="w-full h-96 rounded-lg border-2 border-gray-300 bg-white"
+                        title="Vista previa del PDF"
+                      />
+                    )}
+                  </div>
+
+                  {/* Información del archivo */}
+                  <div className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
+                          <FileText className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{pdfFile.name}</p>
+                          <p className="text-sm text-gray-600">{(pdfFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleRemoveFile}
+                        className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center hover:bg-red-200 transition-colors"
+                      >
+                        <X className="w-4 h-4 text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Advertencia si es obligatorio */}
+            {studyData.estado === "completado" && !pdfFile && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+                <div className="w-5 h-5 bg-red-200 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                  <span className="text-red-600 text-xs font-bold">!</span>
+                </div>
+                <p className="text-sm text-red-700">
+                  El archivo es obligatorio para estudios completados. Por favor, cargue el PDF antes de finalizar.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-4 pt-4">
+              <button
+                onClick={() => setCurrentStep(2)}
+                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+              >
+                Volver a editar datos
+              </button>
+              <button
+                onClick={handleRequestFinish}
+                disabled={studyData.estado === "completado" && !pdfFile}
+                className={`flex-1 px-6 py-3 rounded-lg font-semibold shadow-sm transition-colors ${studyData.estado === "completado" && !pdfFile
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  }`}
+              >
+                {editingExistingStudy ? "Confirmar y finalizar" : "Confirmar y finalizar"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-black">Confirmar carga</h3>
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                aria-label="Cerrar"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm text-gray-700">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase">Paciente</p>
+                <p className="font-medium text-black">{patientData.nombreApellido || "Sin nombre"}</p>
+                <p>DNI: {patientData.dni || "-"}</p>
+                {patientData.obraSocial && <p>Obra Social: {patientData.obraSocial}</p>}
+              </div>
+
+              <div className="pt-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase">Estudio</p>
+                <p>Fecha: {studyData.fecha}</p>
+                <p>Médico: {studyData.medico || "-"}</p>
+                <p>Tipo: {studyData.tipoEstudio || "-"}</p>
+                <p>Estado: {studyData.estado === "completado" ? "Completado" : studyData.estado === "parcial" ? "Parcial" : "En proceso"}</p>
+              </div>
+
+              <div className="pt-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase">Archivo</p>
+                {pdfFile ? (
+                  <p className="font-medium text-black">{pdfFile.name}</p>
+                ) : (
+                  <p className="text-gray-600">No hay archivo seleccionado</p>
+                )}
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
+                Revisa bien antes de confirmar. El paso final no permite modificaciones.
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
+              >
+                Volver a editar
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirm(false)
+                  handleFinishWithFile()
+                }}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold shadow-sm hover:bg-blue-700 transition-colors"
+              >
+                Confirmar y finalizar
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

@@ -81,8 +81,8 @@ export default function LoginPaciente() {
                 }
             } catch { }
             toast.success('Login exitoso');
-            // Redirigir al dashboard
-            window.location.href = '/dashboard';
+            // Redirigir al dashboard del paciente
+            window.location.href = '/paciente/dashboard';
         } catch (error: any) {
             console.error('Login error', error);
             toast.error(error?.message || 'Error al conectar con el servidor');

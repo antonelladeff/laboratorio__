@@ -55,10 +55,10 @@ export const createStudySchema = Joi.object({
 export const updateStudyStatusSchema = Joi.object({
   statusName: Joi.string()
     .required()
-    .valid("IN_PROGRESS", "PARTIAL", "COMPLETE")
+    .valid("IN_PROGRESS", "PARTIAL", "COMPLETED")
     .messages({
       "string.empty": "El estado es requerido",
-      "any.only": "El estado debe ser: IN_PROGRESS, PARTIAL o COMPLETE",
+      "any.only": "El estado debe ser: IN_PROGRESS, PARTIAL o COMPLETED",
       "any.required": "El estado es requerido",
     }),
 });

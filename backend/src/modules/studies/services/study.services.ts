@@ -207,3 +207,6 @@ export const getAllBiochemists = async () => {
     },
   });
 };
+
+// Función NUEVA para obtener estudios con paginación
+// Servicio de paginación eliminado

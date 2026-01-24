@@ -1,6 +1,8 @@
 "use client"
 
-import type { EstudioData } from "../app/revision/page"
+import { useEffect, useState } from "react"
+import type { EstudioData } from "../app/(protected)/revision/page"
+import { getPdf } from "@/utils/estudiosStore"
 
 const ArrowLeft = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -16,6 +18,72 @@ interface RevisarEstudioProps {
 }
 
 export function RevisarEstudio({ estudioData, onVolver, onCompletado, onParcial }: RevisarEstudioProps) {
+  const [pdfUrl, setPdfUrl] = useState<string>("")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string>("")
+
+  useEffect(() => {
+    let objectUrl = ""
+
+    async function loadPdf() {
+      try {
+        setIsLoading(true)
+        setError("")
+
+        // Si el pdfUrl viene del backend (empieza con /uploads), construir la URL completa
+        if (estudioData.pdfUrl && estudioData.pdfUrl.startsWith('/uploads')) {
+          const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+          const fullUrl = `${baseUrl}${estudioData.pdfUrl}`
+          setPdfUrl(fullUrl)
+          setIsLoading(false)
+          return
+        }
+
+        // Si ya tiene un pdfUrl válido (URL completa), usarlo
+        if (estudioData.pdfUrl && !estudioData.pdfUrl.startsWith("blob:")) {
+          setPdfUrl(estudioData.pdfUrl)
+          setIsLoading(false)
+          return
+        }
+
+        // Si tiene ID, intentar cargar desde IndexedDB (para compatibilidad con datos antiguos)
+        if (estudioData.id) {
+          const blob = await getPdf(estudioData.id)
+          if (blob) {
+            objectUrl = URL.createObjectURL(blob)
+            setPdfUrl(objectUrl)
+            setIsLoading(false)
+            return
+          }
+        }
+
+        // Si tiene blob URL temporal, usarlo
+        if (estudioData.pdfUrl) {
+          setPdfUrl(estudioData.pdfUrl)
+          setIsLoading(false)
+          return
+        }
+
+        // No se encontró PDF
+        setError("No se pudo cargar el PDF")
+        setIsLoading(false)
+      } catch (err) {
+        console.error("Error cargando PDF:", err)
+        setError("Error al cargar el PDF")
+        setIsLoading(false)
+      }
+    }
+
+    loadPdf()
+
+    // Cleanup: revocar el blob URL cuando se desmonte el componente
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }, [estudioData.id, estudioData.pdfUrl])
+
   return (
     <div className="min-h-screen bg-gray-200 w-full">
       {/* Header con botón de volver */}
@@ -91,7 +159,27 @@ export function RevisarEstudio({ estudioData, onVolver, onCompletado, onParcial 
           {/* Columna derecha - Visualizador de PDF */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-lg overflow-hidden" style={{ height: "calc(100vh - 200px)" }}>
-              <iframe src={estudioData.pdfUrl} className="w-full h-full" title="Visualizador de PDF" />
+              {isLoading ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                    <p className="mt-4 text-gray-600">Cargando PDF...</p>
+                  </div>
+                </div>
+              ) : error ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center text-red-600">
+                    <p className="text-xl font-semibold">⚠️</p>
+                    <p className="mt-2">{error}</p>
+                  </div>
+                </div>
+              ) : pdfUrl ? (
+                <iframe src={pdfUrl} className="w-full h-full" title="Visualizador de PDF" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <p className="text-gray-500">No hay PDF disponible</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

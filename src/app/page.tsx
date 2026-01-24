@@ -1,4 +1,3 @@
-
 "use client";
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -6,15 +5,27 @@ import authFetch, { getAuthToken } from '@/utils/authFetch';
 
 export default function HomePage() {
     const [selected, setSelected] = useState<'paciente' | 'profesional' | null>(null);
+    const [isChecking, setIsChecking] = useState(true);
     const router = useRouter();
 
     useEffect(() => {
-        // Si el usuario ya está autenticado, redirigir al dashboard
-        const token = getAuthToken();
-        if (token) {
-            router.push('/dashboard');
+        // Limpiar el flag de logout si existe
+        const justLoggedOut = sessionStorage.getItem('justLoggedOut');
+        if (justLoggedOut) {
+            sessionStorage.removeItem('justLoggedOut');
         }
+        setIsChecking(false);
     }, [router]);
+
+    if (isChecking) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-white">
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <main className="min-h-screen flex flex-col items-center justify-center bg-white relative overflow-hidden z-10">
@@ -25,25 +36,25 @@ export default function HomePage() {
             />
 
             {/* Card central */}
-            <section className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full mx-auto mt-16 flex flex-col items-center">
-                <h2 className="text-center  text-black font-semibold text-lg mb-2">Gestión Digital de Estudios Médicos</h2>
-                <p className="text-center text-gray-700 text-sm mb-6">
+            <section className="bg-white rounded-2xl shadow-xl p-12 max-w-xl w-full mx-auto mt-16 flex flex-col items-center">
+                <h2 className="text-center  text-black font-semibold text-2xl mb-3">Gestión Digital de Estudios Médicos</h2>
+                <p className="text-center text-gray-700 text-base mb-8">
                     Plataforma integral para laboratorios que permite a pacientes consultar sus resultados y a bioquímicos gestionar estudios de manera eficiente y segura
                 </p>
 
-                <p className="text-center text-black font-semibold text-sm mb-6">Selecciona tu tipo de acceso:</p>
+                <p className="text-center text-black font-semibold text-base mb-8">Selecciona tu tipo de acceso:</p>
 
                 {/* Iconos de usuario y escudo */}
-                <div className="flex justify-center gap-2 mb-6">
+                <div className="flex justify-center gap-4 mb-8">
                     <button
-                        className={`bg-gray-200 rounded p-2 border ${selected === 'paciente' ? 'border-blue-500' : 'border-gray-300'} focus:outline-none`}
+                        className={`bg-gray-200 rounded-lg p-4 border-2 ${selected === 'paciente' ? 'border-blue-500' : 'border-gray-300'} focus:outline-none text-2xl`}
                         onClick={() => setSelected('paciente')}
                         aria-label="Ingreso Paciente"
                     >
                         <span role="img" aria-label="user">👤</span>
                     </button>
                     <button
-                        className={`bg-gray-200 rounded p-2 border ${selected === 'profesional' ? 'border-blue-500' : 'border-gray-300'} focus:outline-none`}
+                        className={`bg-gray-200 rounded-lg p-4 border-2 ${selected === 'profesional' ? 'border-blue-500' : 'border-gray-300'} focus:outline-none text-2xl`}
                         onClick={() => setSelected('profesional')}
                         aria-label="Ingreso Profesional"
                     >
