@@ -77,6 +77,7 @@ async function main() {
         { name: 'IN_PROGRESS' },
         { name: 'PARTIAL' },
         { name: 'COMPLETED' },
+        { name: 'CANCELLED' },
     ];
 
     for (const status of statuses) {

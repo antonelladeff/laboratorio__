@@ -166,6 +166,25 @@ export const deleteStudy = async (studyId: number) => {
   });
 };
 
+export const cancelStudy = async (studyId: number) => {
+  // Obtener el estado CANCELLED
+  const cancelledStatus = await getStatusByName("CANCELLED");
+  if (!cancelledStatus) {
+    throw new Error("Estado CANCELLED no encontrado en la BD");
+  }
+
+  return await prisma.study.update({
+    where: { id: studyId },
+    data: { statusId: cancelledStatus.id },
+    include: {
+      patient: { include: { profile: true } },
+      biochemist: { include: { profile: true } },
+      status: true,
+      attachments: true,
+    },
+  });
+};
+
 export const getStatusByName = async (statusName: string) => {
   return await prisma.status.findUnique({
     where: {

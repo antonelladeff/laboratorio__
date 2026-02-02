@@ -102,10 +102,15 @@ export function EstudioForm({
             setFechaEstudio(estudioExistente.fechaEstudio || '')
             setObraSocial(estudioExistente.obraSocial || '')
             setMedico(estudioExistente.medico || '')
-            setEstado(estudioExistente.estado || 'en_proceso')
+            // Si está en modo cambio de estado y el estado es "en_proceso", cambiar a "parcial" por defecto
+            if (permitirCambioEstado && estudioExistente.estado === 'en_proceso') {
+                setEstado('parcial')
+            } else {
+                setEstado(estudioExistente.estado || 'en_proceso')
+            }
             setPacienteEncontrado(!!estudioExistente.dni)
         }
-    }, [estudioExistente])
+    }, [estudioExistente, permitirCambioEstado])
 
     // Buscar paciente cuando cambia el DNI (solo si no es modo edición)
     useEffect(() => {
@@ -296,6 +301,13 @@ export function EstudioForm({
                 return
             }
 
+            // Si se está cambiando de estado desde "en_proceso" a parcial/completado, requiere PDF
+            if (modoEdicion && permitirCambioEstado && estado !== 'en_proceso' && pdfs.length === 0 && (!estudioExistente?.attachments || estudioExistente.attachments.length === 0)) {
+                showToastMessage('Debe cargar al menos un PDF al cambiar de estado', 'error')
+                setIsSubmitting(false)
+                return
+            }
+
             // Crear ID único
             const studyId = estudioExistente?.id || `estudio_${Date.now()}_${Math.floor(Math.random() * 10000)}`
 
@@ -310,7 +322,7 @@ export function EstudioForm({
                 id: studyId,
                 nombreApellido,
                 dni,
-                fechaEstudio,
+                fechaEstudio: fechaEstudio || todayLocal(), // Asegurar que siempre haya fecha
                 obraSocial,
                 medico,
                 estado,
@@ -409,12 +421,17 @@ export function EstudioForm({
                     // Campos requeridos por el backend
                     formData.append('dni', dni)
                     formData.append('studyName', nombreApellido)
-                    // Si no hay fecha, usar fecha actual (para en_proceso) sin desfase de zona horaria
-                    formData.append('studyDate', estado === 'en_proceso' ? todayLocal() : fechaEstudio)
+                    // Usar la fecha del formulario o fecha actual si está vacía
+                    const fechaFinal = fechaEstudio || todayLocal()
+                    console.log('📅 Guardando estudio con fecha:', fechaFinal, 'Estado:', estado)
+                    formData.append('studyDate', fechaFinal)
 
-                    // Campos opcionales
-                    if (estado !== 'en_proceso') {
+                    // Campos opcionales - Enviar siempre, incluso en "en_proceso"
+                    // Si están vacíos, se enviarán como strings vacíos y el backend los convertirá a null
+                    if (obraSocial) {
                         formData.append('socialInsurance', obraSocial)
+                    }
+                    if (medico) {
                         formData.append('doctor', medico)
                     }
 
@@ -440,7 +457,8 @@ export function EstudioForm({
 
                     if (response.ok) {
                         const result = await response.json()
-                        console.log('Estudio guardado en backend:', result)
+                        console.log('Respuesta completa del backend:', result)
+                        console.log('result?.data:', result?.data)
                         showToastMessage('Estudio guardado en la base de datos exitosamente', 'success')
 
                         // Actualizar estado si corresponde
@@ -452,9 +470,29 @@ export function EstudioForm({
                             const metas = rawMeta ? JSON.parse(rawMeta) : []
                             const idx = metas.findIndex((m: any) => m.id === studyId)
                             if (idx >= 0 && createdId) {
+                                // Actualizar con los datos que devuelve el backend
+                                // Intentar acceder a data en diferentes estructuras
+                                const backendData = result?.data || result || {};
+                                console.log('📤 Datos devueltos por backend:', backendData);
+                                console.log('📤 doctor field:', backendData.doctor);
                                 metas[idx].backendId = createdId
                                 metas[idx].serverId = createdId
+                                // Actualizar los campos que devuelve el backend
+                                if (backendData.studyDate) {
+                                    metas[idx].fechaEstudio = backendData.studyDate
+                                    console.log('✅ Actualizando fechaEstudio:', backendData.studyDate)
+                                }
+                                if (backendData.doctor) {
+                                    metas[idx].medico = backendData.doctor
+                                    console.log('✅ Actualizando medico:', backendData.doctor)
+                                    setMedico(backendData.doctor) // Actualizar estado del componente
+                                }
+                                if (backendData.socialInsurance) {
+                                    metas[idx].obraSocial = backendData.socialInsurance
+                                    console.log('✅ Actualizando obraSocial:', backendData.socialInsurance)
+                                }
                                 localStorage.setItem('estudios_metadata', JSON.stringify(metas))
+                                console.log('💾 localStorage actualizado con datos del backend')
                             }
                         } catch (e) {
                             console.warn('No se pudo actualizar backendId en metadata local', e)
@@ -504,10 +542,11 @@ export function EstudioForm({
 
                     // Actualizar campos de estudio (obra social, médico, fecha)
                     const updatePayload: any = {}
-                    if (obraSocial !== estudioExistente.obraSocial) {
+                    // Agregar campos si cambiaron o si están vacíos en el existente y ahora tienen valor
+                    if (obraSocial !== estudioExistente.obraSocial || (!estudioExistente.obraSocial && obraSocial)) {
                         updatePayload.socialInsurance = obraSocial
                     }
-                    if (medico !== estudioExistente.medico) {
+                    if (medico !== estudioExistente.medico || (!estudioExistente.medico && medico)) {
                         updatePayload.doctor = medico
                     }
                     if (fechaEstudio !== estudioExistente.fechaEstudio) {
@@ -643,7 +682,9 @@ export function EstudioForm({
                             ? permitirCambioEstado
                                 ? 'Puedes cambiar el estado del estudio y agregar PDFs'
                                 : 'Datos del paciente (solo lectura)'
-                            : 'Completa los datos del paciente y selecciona el estado'}
+                            : estado === 'en_proceso'
+                                ? 'Completa los datos del paciente (sin PDFs). Luego podrás cambiar el estado y agregar archivos.'
+                                : 'Completa los datos del paciente y selecciona el estado'}
                     </p>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -659,13 +700,17 @@ export function EstudioForm({
                                     onChange={(e) => setEstado(e.target.value as EstadoEstudio)}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 >
-                                    {!permitirCambioEstado && <option value="completado">Completado</option>}
-                                    {!permitirCambioEstado && <option value="en_proceso">En Proceso</option>}
-                                    {!permitirCambioEstado && <option value="parcial">Parcial</option>}
+                                    {!modoEdicion && (
+                                        <>
+                                            <option value="en_proceso">En Proceso - Solo cargar datos del paciente (sin PDF)</option>
+                                            <option value="parcial">Parcial - Agregar algunos PDFs</option>
+                                            <option value="completado">Completado - Todos los PDFs cargados</option>
+                                        </>
+                                    )}
                                     {permitirCambioEstado && (
                                         <>
-                                            <option value="completado">Completado</option>
-                                            <option value="parcial">Parcial</option>
+                                            <option value="parcial">Parcial - Agregar algunos PDFs</option>
+                                            <option value="completado">Completado - Todos los PDFs cargados</option>
                                         </>
                                     )}
                                 </select>
@@ -702,9 +747,9 @@ export function EstudioForm({
                                 placeholder="Juan Pérez"
                                 value={nombreApellido}
                                 onChange={(e) => setNombreApellido(e.target.value)}
-                                disabled={camposDeshabilitados}
+                                disabled={camposDeshabilitados || pacienteEncontrado}
                                 required
-                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados || pacienteEncontrado ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
                                     } text-gray-900`}
                             />
                         </div>
@@ -733,78 +778,69 @@ export function EstudioForm({
                             )}
                         </div>
 
-                        {/* Fecha del Estudio - solo si NO es en_proceso */}
-                        {estado !== 'en_proceso' && (
-                            <div>
-                                <label htmlFor="fechaEstudio" className="block text-sm font-medium text-gray-700 mb-2">
-                                    Fecha del Estudio
-                                </label>
-                                <input
-                                    id="fechaEstudio"
-                                    type="date"
-                                    value={fechaEstudio}
-                                    onChange={(e) => {
-                                        console.log('📅 Fecha cambiada a:', e.target.value)
-                                        setFechaEstudio(e.target.value)
-                                    }}
-                                    disabled={camposDeshabilitados}
-                                    required
-                                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                                        } text-gray-900`}
-                                />
-                            </div>
-                        )}
+                        {/* Fecha del Estudio */}
+                        <div>
+                            <label htmlFor="fechaEstudio" className="block text-sm font-medium text-gray-700 mb-2">
+                                Fecha del Estudio
+                            </label>
+                            <input
+                                id="fechaEstudio"
+                                type="date"
+                                value={fechaEstudio}
+                                onChange={(e) => {
+                                    console.log('📅 Fecha cambiada a:', e.target.value)
+                                    setFechaEstudio(e.target.value)
+                                }}
+                                disabled={camposDeshabilitados}
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                                    } text-gray-900`}
+                            />
+                        </div>
 
-                        {/* Obra Social - solo si NO es en_proceso */}
-                        {estado !== 'en_proceso' && (
-                            <div>
-                                <label htmlFor="obraSocial" className="block text-sm font-medium text-gray-700 mb-2">
-                                    Obra Social
-                                </label>
-                                <input
-                                    id="obraSocial"
-                                    type="text"
-                                    placeholder="OSDE, Swiss Medical, etc."
-                                    value={obraSocial}
-                                    onChange={(e) => {
-                                        console.log('🏥 Obra Social cambiada a:', e.target.value)
-                                        setObraSocial(e.target.value)
-                                    }}
-                                    disabled={camposDeshabilitados}
-                                    required
-                                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                                        } text-gray-900`}
-                                />
-                            </div>
-                        )}
+                        {/* Obra Social */}
+                        <div>
+                            <label htmlFor="obraSocial" className="block text-sm font-medium text-gray-700 mb-2">
+                                Obra Social
+                            </label>
+                            <input
+                                id="obraSocial"
+                                type="text"
+                                placeholder="OSDE, Swiss Medical, etc."
+                                value={obraSocial}
+                                onChange={(e) => {
+                                    console.log('🏥 Obra Social cambiada a:', e.target.value)
+                                    setObraSocial(e.target.value)
+                                }}
+                                disabled={camposDeshabilitados}
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                                    } text-gray-900`}
+                            />
+                        </div>
 
-                        {/* Médico - solo si NO es en_proceso */}
-                        {estado !== 'en_proceso' && (
-                            <div className="md:col-span-2">
-                                <label htmlFor="medico" className="block text-sm font-medium text-gray-700 mb-2">
-                                    Médico
-                                </label>
-                                <input
-                                    id="medico"
-                                    type="text"
-                                    placeholder="Dr. María García"
-                                    value={medico}
-                                    onChange={(e) => {
-                                        console.log('👨‍⚕️ Médico cambiado a:', e.target.value)
-                                        setMedico(e.target.value)
-                                    }}
-                                    disabled={camposDeshabilitados}
-                                    required
-                                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
-                                        } text-gray-900`}
-                                />
-                            </div>
-                        )}
+                        {/* Médico */}
+                        <div className="md:col-span-2">
+                            <label htmlFor="medico" className="block text-sm font-medium text-gray-700 mb-2">
+                                Médico
+                            </label>
+                            <input
+                                id="medico"
+                                type="text"
+                                placeholder="Dr. María García"
+                                value={medico}
+                                onChange={(e) => {
+                                    console.log('👨‍⚕️ Médico cambiado a:', e.target.value)
+                                    setMedico(e.target.value)
+                                }}
+                                disabled={camposDeshabilitados}
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${camposDeshabilitados ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                                    } text-gray-900`}
+                            />
+                        </div>
                     </div>
                 </div>
 
-                {/* Carga de PDF */}
-                {(mostrarPdf || modoEdicion) && (
+                {/* Carga de PDF - solo mostrar si NO es en_proceso O si está en modo edición */}
+                {(estado !== 'en_proceso' || modoEdicion) && (
                     <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
                         <h2 className="text-lg font-semibold text-gray-900 mb-1">Documentos PDF</h2>
                         <p className="text-sm text-gray-600 mb-4">
@@ -933,11 +969,7 @@ export function EstudioForm({
                         ) : (
                             <>
                                 <Save className="w-4 h-4" />
-                                {modoEdicion
-                                    ? permitirCambioEstado
-                                        ? 'Guardar Cambios'
-                                        : 'Agregar PDFs'
-                                    : 'Guardar Estudio'}
+                                {modoEdicion ? 'Guardar Cambios' : estado === 'en_proceso' ? 'Guardar' : 'Continuar'}
                             </>
                         )}
                     </button>

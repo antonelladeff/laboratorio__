@@ -10,8 +10,9 @@ export const btnNoFile = 'px-4 py-2 rounded border text-sm text-gray-500 whitesp
 export const iconBtn = 'p-2 rounded border text-gray-500 hover:bg-gray-100'
 export const badgeBase = 'flex items-center justify-center w-28 h-8 text-sm font-semibold rounded-full whitespace-nowrap'
 export const badgeCompletado = `${badgeBase} bg-green-500 text-white`
-export const badgeParcial = `${badgeBase} bg-red-500 text-white`
-export const badgeEnProceso = `${badgeBase} bg-yellow-500 text-white`
+export const badgeParcial = `${badgeBase} bg-yellow-500 text-white`
+export const badgeEnProceso = `${badgeBase} bg-blue-500 text-white`
+export const badgeAnulado = `${badgeBase} bg-gray-400 text-white`
 
 export default {
     cardClasses,
@@ -26,4 +27,5 @@ export default {
     badgeCompletado,
     badgeParcial,
     badgeEnProceso,
+    badgeAnulado,
 }

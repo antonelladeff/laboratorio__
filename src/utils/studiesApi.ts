@@ -37,6 +37,16 @@ export interface Study {
 }
 
 /**
+ * Normalizar datos del backend: convertir doctor a medico
+ */
+function normalizeStudy(study: any): any {
+    return {
+        ...study,
+        medico: study.doctor || null,
+    };
+}
+
+/**
  * Obtener los estudios del bioquímico autenticado
  */
 export async function getMyStudies(): Promise<Study[]> {
@@ -48,7 +58,7 @@ export async function getMyStudies(): Promise<Study[]> {
             throw new Error(data.message || 'Error al obtener estudios');
         }
 
-        return data.data || [];
+        return (data.data || []).map(normalizeStudy);
     } catch (error) {
         console.error('Error fetching studies:', error);
         throw error;
@@ -67,7 +77,7 @@ export async function getStudyById(id: number): Promise<Study> {
             throw new Error(data.message || 'Error al obtener estudio');
         }
 
-        return data.data;
+        return normalizeStudy(data.data);
     } catch (error) {
         console.error('Error fetching study:', error);
         throw error;
@@ -93,9 +103,34 @@ export async function updateStudyStatus(id: number, statusName: string): Promise
             throw new Error(data.message || 'Error al actualizar estado');
         }
 
-        return data.data;
+        return normalizeStudy(data.data);
     } catch (error) {
         console.error('Error updating study status:', error);
+        throw error;
+    }
+}
+
+/**
+ * Anular un estudio
+ */
+export async function cancelStudy(id: number): Promise<Study> {
+    try {
+        const response = await authFetch(`${API_URL}/api/studies/${id}/cancel`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Error al anular estudio');
+        }
+
+        return normalizeStudy(data.data);
+    } catch (error) {
+        console.error('Error cancelling study:', error);
         throw error;
     }
 }

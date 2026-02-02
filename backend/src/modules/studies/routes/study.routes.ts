@@ -127,4 +127,16 @@ router.delete(
   studyController.deleteAttachment
 );
 
+/**
+ * @route   POST /api/studies/:id/cancel
+ * @desc    Anular un estudio en estado IN_PROGRESS
+ * @access  Private (Biochemist)
+ */
+router.post(
+  "/:id/cancel",
+  authMiddleware,
+  isBiochemist,
+  studyController.cancelStudy
+);
+
 export default router;

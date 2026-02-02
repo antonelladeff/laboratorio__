@@ -59,6 +59,9 @@ export const createStudy = async (
       dni,
       studyName,
       studyDate,
+      studyDateType: typeof studyDate,
+      studyDateIsNull: studyDate === null,
+      studyDateIsUndefined: studyDate === undefined,
       socialInsurance,
       biochemistId,
       doctor
@@ -105,8 +108,14 @@ export const createStudy = async (
       biochemistId: req.user?.id ?? null,
     };
 
-    // Sin fecha en creación inicial (se definirá luego en parcial/completa)
-    studyData.studyDate = null;
+    // Asignar la fecha si viene del frontend, de lo contrario dejarla como null
+    if (studyDate !== null && studyDate !== undefined) {
+      console.log('📅 Asignando studyDate:', studyDate, 'tipo:', typeof studyDate);
+      studyData.studyDate = (studyDate as any) instanceof Date ? studyDate : new Date(studyDate);
+    } else {
+      console.log('📅 studyDate es null/undefined, asignando null');
+      studyData.studyDate = null;
+    }
 
     console.log('💾 Guardando estudio con datos:', studyData);
 
@@ -117,6 +126,7 @@ export const createStudy = async (
       studyName: study.studyName,
       studyDate: study.studyDate,
       socialInsurance: study.socialInsurance,
+      doctor: study.doctor,
       userId: study.userId,
       statusId: study.statusId
     });
@@ -497,6 +507,55 @@ export const getPatientByDni = async (
   } catch (error: any) {
     console.error("Error al buscar paciente:", error);
     ResponseHelper.serverError(res, "Error al buscar paciente", error);
+  }
+};
+
+/**
+ * Controlador para anular un estudio
+ * Solo accesible por el bioquímico asignado o admin
+ */
+export const cancelStudy = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const studyId = parseInt(id!, 10);
+
+    if (isNaN(studyId)) {
+      return ResponseHelper.validationError(res, "ID de estudio inválido");
+    }
+
+    // Obtener el estudio
+    const study = await studyService.getStudyById(studyId);
+    if (!study) {
+      return ResponseHelper.notFound(res, "Estudio");
+    }
+
+    // Verificar permisos: solo el bioquímico asignado puede anular
+    if (study.biochemistId !== req.user?.id) {
+      return ResponseHelper.forbidden(
+        res,
+        "Solo el bioquímico asignado puede anular este estudio"
+      );
+    }
+
+    // Verificar que solo puede anularse en estado IN_PROGRESS
+    if (study.status?.name !== "IN_PROGRESS") {
+      return ResponseHelper.validationError(
+        res,
+        "Solo se pueden anular estudios en estado 'En Proceso'"
+      );
+    }
+
+    // Anular el estudio
+    const cancelledStudy = await studyService.cancelStudy(studyId);
+    const formattedStudy = studyFormatter.formatStudy(cancelledStudy);
+
+    ResponseHelper.success(res, formattedStudy, "Estudio anulado exitosamente");
+  } catch (error: any) {
+    console.error("Error al anular estudio:", error);
+    ResponseHelper.serverError(res, "Error al anular estudio", error);
   }
 };
 

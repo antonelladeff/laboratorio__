@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import authFetch from '@/utils/authFetch'
-import { FileText, Plus, Trash2, Edit2, Download } from 'lucide-react'
+import { FileText, Plus, Trash2, Edit2, Download, Ban } from 'lucide-react'
 import Clock from './Clock'
 import {
     cardClasses,
@@ -17,8 +17,10 @@ import {
     badgeCompletado,
     badgeParcial,
     badgeEnProceso,
+    badgeAnulado,
 } from '@/utils/uiClasses'
 import Toast from './Toast'
+import { cancelStudy } from '@/utils/studiesApi'
 
 interface Estudio {
     id: string | number
@@ -28,13 +30,14 @@ interface Estudio {
     obraSocial: string
     medico: string
     pdfs?: string[]
-    estado?: 'completado' | 'en_proceso' | 'parcial'
-    status?: 'completado' | 'en_proceso' | 'parcial'
+    estado?: 'completado' | 'en_proceso' | 'parcial' | 'anulado'
+    status?: 'completado' | 'en_proceso' | 'parcial' | 'anulado'
 }
 
 export function EstudiosTable() {
     const [estudios, setEstudios] = useState<Estudio[]>([])
-    const [filtroEstado, setFiltroEstado] = useState<'todos' | 'completado' | 'en_proceso' | 'parcial'>('todos')
+    const [filtroEstado, setFiltroEstado] = useState<'todos' | 'completado' | 'en_proceso' | 'parcial' | 'anulado'>('todos')
+    const [mostrarAnulados, setMostrarAnulados] = useState(false)
     const [busquedaDni, setBusquedaDni] = useState('')
     const [busquedaNombre, setBusquedaNombre] = useState('')
     const [fechaInicio, setFechaInicio] = useState('')
@@ -45,6 +48,8 @@ export function EstudiosTable() {
     const [showToast, setShowToast] = useState(false)
     const [toastMessage, setToastMessage] = useState('')
     const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('info')
+    const [showConfirmacion, setShowConfirmacion] = useState(false)
+    const [estudioAAnular, setEstudioAAnular] = useState<string | number | null>(null)
 
     // Cargar estudios al montar el componente
     useEffect(() => {
@@ -93,10 +98,10 @@ export function EstudiosTable() {
 
                     const estadoNormalizado = study.status?.name?.toLowerCase() === 'completed' ? 'completado'
                         : study.status?.name?.toLowerCase() === 'partial' ? 'parcial'
-                            : 'en_proceso'
-                    const medicoFinal = estadoNormalizado === 'en_proceso'
-                        ? ''
-                        : (study.doctor || 'Sin asignar')
+                            : study.status?.name?.toLowerCase() === 'cancelled' ? 'anulado'
+                                : 'en_proceso'
+                    // Mostrar el doctor si existe, sin importar el estado
+                    const medicoFinal = study.doctor || ''
                     return {
                         id: study.id,
                         nombreApellido: nombrePaciente,
@@ -144,28 +149,71 @@ export function EstudiosTable() {
         }
     }
 
-    const eliminarEstudio = (id: string | number) => {
-        if (confirm('¿Estás seguro de que deseas eliminar este estudio?')) {
-            try {
-                const raw = localStorage.getItem('estudios_metadata')
-                const metas = raw ? JSON.parse(raw) : []
-                const filtrados = metas.filter((m: any) => m.id !== id)
-                localStorage.setItem('estudios_metadata', JSON.stringify(filtrados))
-                setEstudios(filtrados)
-                // Disparar evento para que otros componentes se actualicen
-                window.dispatchEvent(new Event('storage'))
-                mostrarToast('Estudio eliminado', 'success')
-            } catch (error) {
-                console.error('Error eliminando estudio:', error)
-                mostrarToast('Error al eliminar el estudio', 'error')
-            }
-        }
-    }
-
     const mostrarToast = (mensaje: string, tipo: 'success' | 'error' | 'info' = 'info') => {
         setToastMessage(mensaje)
         setToastType(tipo)
         setShowToast(true)
+    }
+
+    const anularEstudio = async (id: string | number) => {
+        console.log('🔔 anularEstudio llamado con ID:', id, 'tipo:', typeof id)
+        // Mostrar modal de confirmación personalizado
+        setEstudioAAnular(id)
+        setShowConfirmacion(true)
+    }
+
+    const confirmarAnulacion = async () => {
+        if (!estudioAAnular) return
+
+        try {
+            mostrarToast('Anulando estudio...', 'info')
+
+            // Usar directamente el ID del estudio que ya es el backendId
+            const estudio = estudios.find((e: any) => e.id === estudioAAnular)
+
+            if (!estudio) {
+                console.error('❌ No se encontró el estudio con ID:', estudioAAnular)
+                mostrarToast('No se encontró el estudio', 'error')
+                setShowConfirmacion(false)
+                setEstudioAAnular(null)
+                return
+            }
+
+            console.log('🚀 Intentando anular estudio:', {
+                estudioAAnular,
+                estudioEncontrado: estudio,
+                idParaAPI: estudio.id,
+                tipoId: typeof estudio.id
+            })
+
+            // Convertir a número si es string
+            const studyId = typeof estudio.id === 'string' ? parseInt(estudio.id) : estudio.id
+
+            console.log('📡 Llamando a cancelStudy con ID:', studyId, 'tipo:', typeof studyId)
+
+            const response = await cancelStudy(studyId)
+
+            console.log('✅ Respuesta de cancelStudy:', response)
+
+            if (response) {
+                mostrarToast('Estudio anulado exitosamente', 'success')
+                // Recargar estudios del backend
+                await cargarEstudios()
+            }
+            setShowConfirmacion(false)
+            setEstudioAAnular(null)
+        } catch (error: any) {
+            console.error('❌ Error anulando estudio:', error)
+            console.error('❌ Stack:', error.stack)
+            mostrarToast(error.message || 'Error al anular el estudio', 'error')
+            setShowConfirmacion(false)
+            setEstudioAAnular(null)
+        }
+    }
+
+    const cancelarAnulacion = () => {
+        setShowConfirmacion(false)
+        setEstudioAAnular(null)
     }
 
     const getEstadoBadgeClass = (estado?: string) => {
@@ -176,6 +224,9 @@ export function EstudiosTable() {
                 return badgeEnProceso
             case 'parcial':
                 return badgeParcial
+            case 'anulado':
+            case 'cancelled':
+                return badgeAnulado
             default:
                 return badgeParcial
         }
@@ -189,9 +240,53 @@ export function EstudiosTable() {
                 return 'En Proceso'
             case 'parcial':
                 return 'Parcial'
+            case 'anulado':
+            case 'cancelled':
+                return 'Anulado'
             default:
                 return 'Desconocido'
         }
+    }
+
+    const getEstadoIcon = (estado?: string) => {
+        switch (estado?.toLowerCase()) {
+            case 'completado':
+                return (
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+                    </svg>
+                )
+            case 'en_proceso':
+                return (
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
+                    </svg>
+                )
+            case 'parcial':
+                return (
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-8-6z" />
+                    </svg>
+                )
+            case 'anulado':
+            case 'cancelled':
+                return (
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+                    </svg>
+                )
+            default:
+                return null
+        }
+    }
+
+    const renderEstadoBadge = (estado?: string) => {
+        return (
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-semibold text-white ${getEstadoBadgeClass(estado)}`}>
+                {getEstadoIcon(estado)}
+                <span>{getEstadoLabel(estado)}</span>
+            </div>
+        )
     }
 
     // Función para normalizar fechas al formato YYYY-MM-DD sin procesar zona horaria
@@ -222,9 +317,14 @@ export function EstudiosTable() {
         return fecha
     }
 
-    const estudiosFiltrados = filtroEstado === 'todos'
-        ? estudios
-        : estudios.filter(e => (e.estado || e.status) === filtroEstado)
+    const estudiosFiltrados = (() => {
+        const base = filtroEstado === 'todos'
+            ? estudios
+            : estudios.filter(e => (e.estado || e.status) === filtroEstado)
+
+        if (filtroEstado === 'anulado') return base
+        return mostrarAnulados ? base : base.filter(e => (e.estado || e.status) !== 'anulado')
+    })()
 
     // Aplicar filtro adicional por DNI si hay búsqueda
     const estudiosConDni = busquedaDni.trim()
@@ -298,7 +398,7 @@ export function EstudiosTable() {
                             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
                         >
                             <Plus className="w-4 h-4" />
-                            Cargar Nuevo Estudio
+                            Continuar
                         </Link>
                     </div>
                 </div>
@@ -349,7 +449,18 @@ export function EstudiosTable() {
                             <option value="completado">Completados ({estudios.filter(e => (e.estado || e.status) === 'completado').length})</option>
                             <option value="en_proceso">En Proceso ({estudios.filter(e => (e.estado || e.status) === 'en_proceso').length})</option>
                             <option value="parcial">Parciales ({estudios.filter(e => (e.estado || e.status) === 'parcial').length})</option>
+                            <option value="anulado">Anulados ({estudios.filter(e => (e.estado || e.status) === 'anulado').length})</option>
                         </select>
+
+                        <label className="inline-flex items-center gap-2 text-base font-semibold text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={mostrarAnulados}
+                                onChange={(e) => setMostrarAnulados(e.target.checked)}
+                                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            Mostrar anulados
+                        </label>
 
                         <label className="text-base font-semibold text-gray-700">Buscar paciente:</label>
                         <input
@@ -443,9 +554,7 @@ export function EstudiosTable() {
                             {estudiosPaginados.map((estudio) => (
                                 <tr key={estudio.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4">
-                                        <div className={`inline-block px-3 py-1.5 rounded text-sm font-semibold text-white ${getEstadoBadgeClass(estudio.estado || estudio.status)}`}>
-                                            {getEstadoLabel(estudio.estado || estudio.status)}
-                                        </div>
+                                        {renderEstadoBadge(estudio.estado || estudio.status)}
                                     </td>
                                     <td className="px-6 py-4 font-semibold text-gray-900">{estudio.nombreApellido}</td>
                                     <td className="px-6 py-4 text-gray-800">{estudio.dni}</td>
@@ -463,21 +572,25 @@ export function EstudiosTable() {
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end gap-2">
                                             {((estudio.estado || estudio.status) === 'parcial' || (estudio.estado || estudio.status) === 'en_proceso') && (
-                                                <Link
-                                                    href={`/cargar-nuevo?id=${estudio.id}`}
-                                                    className="px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold text-sm rounded transition-colors inline-flex items-center gap-1"
-                                                >
-                                                    <Edit2 className="w-4 h-4" />
-                                                    Continuar
-                                                </Link>
+                                                <>
+                                                    <Link
+                                                        href={`/cargar-nuevo?id=${estudio.id}`}
+                                                        className="px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold text-sm rounded transition-colors inline-flex items-center gap-1"
+                                                    >
+                                                        <Edit2 className="w-4 h-4" />
+                                                        Cambiar Estado
+                                                    </Link>
+                                                    {(estudio.estado || estudio.status) === 'en_proceso' && (
+                                                        <button
+                                                            onClick={() => anularEstudio(estudio.id)}
+                                                            className="p-2.5 text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                                                            title="Anular estudio"
+                                                        >
+                                                            <Ban className="w-5 h-5" />
+                                                        </button>
+                                                    )}
+                                                </>
                                             )}
-                                            <button
-                                                onClick={() => eliminarEstudio(estudio.id)}
-                                                className="p-2.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                title="Eliminar estudio"
-                                            >
-                                                <Trash2 className="w-5 h-5" />
-                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -505,8 +618,8 @@ export function EstudiosTable() {
                                         key={pagina}
                                         onClick={() => setPaginaActual(pagina)}
                                         className={`px-3 py-2 rounded-lg font-medium transition-colors ${paginaActual === pagina
-                                                ? 'bg-blue-600 text-white'
-                                                : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'border border-gray-300 text-gray-700 hover:bg-gray-100'
                                             }`}
                                     >
                                         {pagina}
@@ -532,26 +645,28 @@ export function EstudiosTable() {
                         <div className="space-y-3">
                             {/* Estado y acciones */}
                             <div className="flex items-start justify-between gap-3">
-                                <div className={`inline-block px-3 py-1.5 rounded text-sm font-semibold text-white ${getEstadoBadgeClass(estudio.estado || estudio.status)}`}>
-                                    {getEstadoLabel(estudio.estado || estudio.status)}
-                                </div>
+                                {renderEstadoBadge(estudio.estado || estudio.status)}
                                 <div className="flex items-center gap-2">
                                     {((estudio.estado || estudio.status) === 'parcial' || (estudio.estado || estudio.status) === 'en_proceso') && (
-                                        <Link
-                                            href={`/cargar-nuevo?id=${estudio.id}`}
-                                            className="p-2 text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                                            title="Continuar estudio"
-                                        >
-                                            <Edit2 className="w-4 h-4" />
-                                        </Link>
+                                        <>
+                                            <Link
+                                                href={`/cargar-nuevo?id=${estudio.id}`}
+                                                className="p-2 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                                title="Cambiar estado"
+                                            >
+                                                <Edit2 className="w-4 h-4" />
+                                            </Link>
+                                            {(estudio.estado || estudio.status) === 'en_proceso' && (
+                                                <button
+                                                    onClick={() => anularEstudio(estudio.id)}
+                                                    className="p-2 text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                                                    title="Anular estudio"
+                                                >
+                                                    <Ban className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </>
                                     )}
-                                    <button
-                                        onClick={() => eliminarEstudio(estudio.id)}
-                                        className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                        title="Eliminar estudio"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
                                 </div>
                             </div>
 
@@ -602,18 +717,55 @@ export function EstudiosTable() {
             </div>
 
             {/* Mensaje si no hay estudios filtrados */}
-            {estudiosFinales.length === 0 && (
-                <div className="bg-white rounded-lg border border-gray-200 border-dashed p-8 text-center">
-                    <p className="text-gray-600 text-base">
-                        {busquedaDni.trim()
-                            ? `No se encontraron estudios para el DNI "${busquedaDni}"`
-                            : fechaInicio || fechaFin
-                                ? `No hay estudios en el rango de fechas seleccionado (${fechaInicio || 'inicio'} - ${fechaFin || 'fin'})`
-                                : `No hay estudios con estado "${getEstadoLabel(filtroEstado)}"`
-                        }
-                    </p>
+            {
+                estudiosFinales.length === 0 && (
+                    <div className="bg-white rounded-lg border border-gray-200 border-dashed p-8 text-center">
+                        <p className="text-gray-600 text-base">
+                            {busquedaDni.trim()
+                                ? `No se encontraron estudios para el DNI "${busquedaDni}"`
+                                : fechaInicio || fechaFin
+                                    ? `No hay estudios en el rango de fechas seleccionado (${fechaInicio || 'inicio'} - ${fechaFin || 'fin'})`
+                                    : `No hay estudios con estado "${getEstadoLabel(filtroEstado)}"`
+                            }
+                        </p>
+                    </div>
+                )
+            }
+
+            {/* Modal de confirmación para anular estudio */}
+            {showConfirmacion && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="flex-shrink-0">
+                                <svg className="h-6 w-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4v2m0 4v2M6.343 3.665c1.519-1.159 3.7-1.159 5.219 0l8.485 6.479c1.519 1.16 1.519 3.04 0 4.199l-8.485 6.479c-1.519 1.159-3.7 1.159-5.219 0l-8.485-6.479c-1.519-1.16-1.519-3.04 0-4.199L6.343 3.665z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-900">¿Anular este estudio?</h3>
+                        </div>
+
+                        <p className="text-gray-600 mb-6">
+                            ¿Estás seguro de que deseas anular este estudio? Esta acción no se puede deshacer.
+                        </p>
+
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={cancelarAnulacion}
+                                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={confirmarAnulacion}
+                                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium transition-colors"
+                            >
+                                Sí, Anular
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
-        </div>
+        </div >
     )
 }

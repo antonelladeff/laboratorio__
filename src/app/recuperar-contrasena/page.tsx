@@ -43,7 +43,7 @@ export default function RecuperarContrasena() {
 
     if (isValidToken === false) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-blue-100 via-indigo-50 to-slate-100 px-4">
+            <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-blue-200 via-indigo-50 to-slate-100 px-4">
                 <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
                     <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">Recuperar Contraseña</h1>
                     <p className="text-center text-gray-600 mb-6">
@@ -57,7 +57,7 @@ export default function RecuperarContrasena() {
 
     // Si hay token válido, mostrar formulario de reset
     return (
-        <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-blue-100 via-indigo-50 to-slate-100 px-4">
+        <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-blue-200 via-indigo-50 to-slate-100 px-4">
             <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
                 <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">Restablecer Contraseña</h1>
                 <p className="text-center text-gray-600 mb-6">
